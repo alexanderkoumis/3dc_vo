@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
 
+import argparse
 import os
 import sys
 
 import cv2
 import numpy as np
 
-import keras
-from keras.models import Sequential
 from keras.layers import Dense, Conv2D, Flatten, Dropout
-from keras.layers.advanced_activations import LeakyReLU
-# from keras.optimizers import RMSprop
-# from keras.regularizers import l1, l2
+from keras.models import Sequential
+from keras.optimizers import Adam
+from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
-from keras.optimizers import SGD, Adam
 
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('image_dir', help='Image path')
+    parser.add_argument('odometry_dir', help='Odometry ground truth path')
+    parser.add_argument('model_output', help='Where to save/load model')
+    parser.add_argument('-s', '--stack_size', default=4, help='Size of image stack')
+    args = parser.parse_args()
+    return args
 
 def load_image(image_path, image_name):
+    """Load and regularize image"""
     full_path = os.path.join(image_path, f'{image_name}.png')
     image = cv2.imread(full_path)
-    # image = image / np.max(image)
-    # image -= np.mean(image)
+    image = image / np.max(image)
+    image -= np.mean(image)
     return image
 
-def parse_ground_truth(gt_path, image_name):
-    full_path = os.path.join(gt_path, f'{image_name}.txt')
+def load_odometry(odom_path, image_name):
+    """Load target odometry"""
+    full_path = os.path.join(odom_path, f'{image_name}.txt')
     with open(full_path, 'r') as fd:
         # 8  vf:    forward velocity, i.e. parallel to earth-surface (m/s)
         # 9  vl:    leftward velocity, i.e. parallel to earth-surface (m/s)
@@ -40,66 +49,64 @@ def parse_ground_truth(gt_path, image_name):
         vals = [float(data[idx]) for idx in idxs]
         return vals
 
-
 def stack_images(image_data, stack_size):
     rows, cols, channels = image_data[0].shape
     stack_channels = channels * stack_size
     stacked_images = np.zeros((len(image_data)-stack_size+1, rows, cols, stack_channels))
-    # (478, 375, 1242, 12)
     for i in range(len(image_data)-stack_size+1):
         for j in range(stack_size):
             stacked_images[i, :, :, j*channels:(j+1)*channels] = image_data[i+j]
     return stacked_images
 
+def load_data(image_dir, odom_dir, stack_size):
+    image_paths = os.listdir(image_dir)
+    image_names = [path.split('.')[0] for path in image_paths]
+    image_names.sort(key=int)
 
-image_path = '/Users/alexander/Development/KITTI/2011_09_26_drive_0019_sync/image_02/data'
-gt_path = '/Users/alexander/Development/KITTI/2011_09_26_drive_0019_sync/oxts/data'
+    image_data = [load_image(image_dir, name) for name in image_names]
+    odom_data = [load_odometry(odom_dir, name) for name in image_names]
 
-image_paths = os.listdir(image_path)
-image_names = [path.split('.')[0] for path in image_paths]
-image_names.sort(key=int)
+    # Stack images, trim last few odometries
+    image_data = stack_images(image_data, stack_size)
+    odom_data = np.array(odom_data[:-stack_size+1])
 
-image_data = [load_image(image_path, name) for name in image_names]
-gt_data = [parse_ground_truth(gt_path, name) for name in image_names]
+    return image_data, odom_data
 
-stack_size = 4
-# image_data = np.array(stack_images(image_data, stack_size))
-image_data = stack_images(image_data, stack_size)
-gt_data = np.array(gt_data[:-stack_size+1])
+def build_model(input_shape, num_outputs):
+    # https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
+    model = Sequential()
+    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01), input_shape=input_shape))
+    model.add(Dropout(0.1))
+    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01)))
+    model.add(Dropout(0.1))
+    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01)))
+    model.add(Flatten())
+    model.add(Dense(num_outputs, activation='relu'))
+    return model
 
+def main(args):
 
-X_train, X_test, y_train, y_test = train_test_split(image_data, gt_data, test_size=1.0/4.0)
+    image_data, odom_data = load_data(args.image_dir, args.odometry_dir, args.stack_size)
+    X_train, X_test, y_train, y_test = train_test_split(image_data, odom_data, test_size=1.0/4.0)
 
+    num_images, image_rows, image_cols, image_channels = image_data.shape
+    input_shape = (image_rows, image_cols, image_channels)
+    num_outputs = odom_data.shape[1]
 
-print('Splitted up, creating model')
-num_images, image_rows, image_cols, image_channels = image_data.shape
-num_outputs = gt_data.shape[1]
+    model = build_model(input_shape, num_outputs)
 
-input_shape = image_rows, image_cols, image_channels
+    model.summary()
+    model.compile(loss='mean_squared_error', optimizer=Adam(), metrics=['accuracy'])
 
-# https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
-model = Sequential()
-model.add(Conv2D(32, (5, 5), strides=(4, 4), padding='same', activation='linear', input_shape=input_shape))
-model.add(LeakyReLU())
-model.add(Conv2D(32, (5, 5), strides=(4, 4), padding='same', activation='linear'))
-model.add(LeakyReLU())
-model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='linear'))
-model.add(LeakyReLU())
-model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='linear'))
-model.add(LeakyReLU())
-model.add(Flatten())
-model.add(Dense(num_outputs, activation='sigmoid'))
+    history = model.fit(X_train, y_train,
+                        batch_size=4,
+                        epochs=100,
+                        verbose=1,
+                        validation_data=(X_test, y_test))
 
-model.summary()
+    score = model.evaluate(X_test, y_test, verbose=0)
 
-print('Model made, compiling')
-model.compile(loss='mean_squared_error', optimizer=Adam(), metrics=['accuracy'])
+    model.save(args.model_output)
 
-print('Fitting')
-history = model.fit(X_train, y_train,
-                    batch_size=32,
-                    epochs=100000,
-                    verbose=1,
-                    validation_data=(X_test, y_test))
-
-score = model.evaluate(x_test, y_test, verbose=0)
+if __name__ == '__main__':
+    main(parse_args())
