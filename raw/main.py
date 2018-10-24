@@ -71,16 +71,20 @@ def load_data(image_dir, odom_dir, stack_size):
     image_data = stack_images(image_data, stack_size)
     odom_data = np.array(odom_data[:-stack_size+1])
 
-    return image_data, odom_data
+    odom_mins = np.min(odom_data, axis=0)
+    odom_data -= odom_mins
+    label_scale = np.max(odom_data, axis=0)
+    odom_data /= label_scale
+
+    return image_data, odom_data, odom_mins, label_scale
 
 def build_model(input_shape, num_outputs):
     # https://stackoverflow.com/questions/37232782/nan-loss-when-training-regression-network
     model = Sequential()
-    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01), input_shape=input_shape))
+    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001), input_shape=input_shape))
+    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
     model.add(Dropout(0.1))
-    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01)))
-    model.add(Dropout(0.1))
-    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.01)))
+    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
     model.add(Flatten())
     model.add(Dense(num_outputs, activation='relu'))
     return model
@@ -95,8 +99,8 @@ def test_saved_model(features, labels, model_file):
 
 def main(args):
 
-    image_data, odom_data = load_data(args.image_dir, args.odometry_dir, args.stack_size)
-    X_train, X_test, y_train, y_test = train_test_split(image_data, odom_data, test_size=1.0/4.0)
+    image_data, odom_data, odom_mins, odom_scale = load_data(args.image_dir, args.odometry_dir, args.stack_size)
+    X_train, X_test, y_train, y_test = train_test_split(image_data, odom_data, test_size=1.0/5.0)
 
     if args.test:
         print('Testing saved model {}'.format(args.model_file))
@@ -114,13 +118,15 @@ def main(args):
 
     history = model.fit(X_train, y_train,
                         batch_size=4,
-                        epochs=50,
+                        epochs=100,
                         verbose=1,
                         validation_data=(X_test, y_test))
 
+    print('Saving model to {}'.format(args.model_file))
+    model.save(args.model_file)
+
     evaluate_model(model, X_test, y_test)
 
-    model.save(args.model_file)
 
 if __name__ == '__main__':
     main(parse_args())
