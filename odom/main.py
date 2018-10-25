@@ -8,20 +8,10 @@ import random
 
 import cv2
 import numpy as np
-from keras.layers import Dense, Conv2D, Flatten, Dropout
+from keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D
 from keras.models import Sequential, load_model
 from keras.optimizers import Adam
 from keras.regularizers import l2
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('base_dir', help='Base directory')
-    parser.add_argument('model_file', help='Model file')
-    parser.add_argument('-s', '--stack_size', help='Size of image stack', default=4)
-    args = parser.parse_args()
-    return args
-
 
 
 def get_stamps(stamps_path):
@@ -30,6 +20,7 @@ def get_stamps(stamps_path):
         for line in fd.readlines():
             result.append(float(line))
     return result
+
 
 def get_poses(poses_path):
     result = []
@@ -40,15 +31,6 @@ def get_poses(poses_path):
             pose = np.vstack((pose, [0, 0, 0, 1]))
             result.append(pose)
     return result
-
-def stack_images(image_data, stack_size):
-    rows, cols, channels = image_data[0].shape
-    stack_channels = channels * stack_size
-    stacked_images = np.zeros((len(image_data)-stack_size+1, rows, cols, stack_channels), dtype=np.float32)
-    for i in range(len(image_data)-stack_size+1):
-        for j in range(stack_size):
-            stacked_images[i, :, :, j*channels:(j+1)*channels] = image_data[i+j]
-    return stacked_images
 
 
 def load_filenames(base_dir):
@@ -86,16 +68,6 @@ def load_filenames(base_dir):
 
     return image_paths_all, stamps_all, poses_all
 
-
-def build_model(input_shape, num_outputs):
-    model = Sequential()
-    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001), input_shape=input_shape))
-    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
-    model.add(Dropout(0.1))
-    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
-    model.add(Flatten())
-    model.add(Dense(num_outputs, activation='relu'))
-    return model
 
 def stack_data(image_paths, stamps, poses, stack_size):
     """
@@ -174,7 +146,7 @@ def calc_velocity(stamps, poses):
     time_elapsed = last_stamp - first_stamp
     euclidean_dist = first_pose[:3, 3] - last_pose[:3, 3]
 
-    return np.matrix(euclidean_dist / time_elapsed)
+    return euclidean_dist / time_elapsed
 
 
 def dataset_generator(dataset, batch_size):
@@ -182,20 +154,45 @@ def dataset_generator(dataset, batch_size):
     image_paths_all, stamps_all, poses_all = dataset
 
     while True:
+
+        stacked_images_all = []
+        velocity_all = []
+
         for image_paths, stamps, poses in zip(image_paths_all, stamps_all, poses_all):
 
-            images = [cv2.imread(path) for path in image_paths]
-            stacked_images = np.dstack(images)
-            stacked_images = np.expand_dims(stacked_images, axis=0)
             velocity = calc_velocity(stamps, poses)
+            images = [cv2.imread(path) for path in image_paths]
+            images = [image / np.max(image) for image in images]
+            images = [image - np.mean(image) for image in images]
+            stacked_images = np.dstack(images)
 
-            yield stacked_images, velocity
+            # stacked_images = np.expand_dims(stacked_images, axis=0)
+            # yield stacked_images, velocity
+
+            stacked_images_all.append(stacked_images)
+            velocity_all.append(velocity)
+
+            if len(stacked_images_all) == batch_size:
+                yield np.array(stacked_images_all), np.array(velocity_all)
+                stacked_images_all = []
+                velocity_all = []
+
+
+def build_model(input_shape, num_outputs):
+    model = Sequential()
+    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001), input_shape=input_shape))
+    model.add(MaxPooling2D())
+    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
+    model.add(Dropout(0.1))
+    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.001)))
+    model.add(Flatten())
+    model.add(Dense(num_outputs, activation='relu'))
+    return model
 
 
 def get_input_shape(image_paths, stack_size):
     image = cv2.imread(image_paths[0][0])
     return image.shape * np.array([1, 1, stack_size])
-
 
 def main(args):
     image_paths, stamps, poses = load_filenames(args.base_dir)
@@ -203,7 +200,6 @@ def main(args):
 
     # Just doing positional velocity for now
     num_outputs = 3
-    batch_size = 5
 
     input_shape = get_input_shape(image_paths, args.stack_size)
     model = build_model(input_shape, num_outputs)
@@ -213,14 +209,25 @@ def main(args):
 
     train_data, test_data = test_train_split(image_paths, stamps, poses)
 
-    history = model.fit_generator(dataset_generator(train_data, batch_size),
+    history = model.fit_generator(dataset_generator(train_data, args.batch_size),
                                   epochs=100,
-                                  steps_per_epoch=len(train_data[0]),
-                                  validation_steps=len(test_data[0]),
+                                  steps_per_epoch=int(len(train_data[0])/args.batch_size),
+                                  validation_steps=int(len(test_data[0])/args.batch_size),
                                   verbose=1,
-                                  validation_data=dataset_generator(test_data, batch_size))
+                                  validation_data=dataset_generator(test_data, args.batch_size))
 
     model.save(args.model_file)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('base_dir', help='Base directory')
+    parser.add_argument('model_file', help='Model file')
+    parser.add_argument('-b', '--batch_size', help='Batch size', default=25)
+    parser.add_argument('-s', '--stack_size', help='Size of image stack', default=4)
+    args = parser.parse_args()
+    return args
+
 
 if __name__ == '__main__':
     main(parse_args())
