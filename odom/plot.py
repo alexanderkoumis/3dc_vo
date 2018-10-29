@@ -9,7 +9,7 @@ import numpy as np
 from keras.models import load_model
 from matplotlib.lines import Line2D
 
-from main_2d_3s import load_filenames, DEFAULT_STACK_SIZE, stack_data, calc_velocity, stack_data
+from main import load_filenames, DEFAULT_STACK_SIZE, stack_data, calc_velocity, stack_data
 
 
 def plot_line(x, y):

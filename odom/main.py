@@ -192,7 +192,7 @@ def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, train=
         for image_paths, stamps, poses in zip(image_paths_all, stamps_all, poses_all):
 
             velocity = calc_velocity(stamps, poses)
-            images = [image_loader.load_image(path) for path in image_paths]
+            images = [image_loader.load_image(path) / 255.0 for path in image_paths]
             stacked_images = np.dstack(images).astype(float)
 
             stacked_images_all.append(stacked_images)
@@ -206,7 +206,7 @@ def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, train=
 
 def build_model(input_shape, num_outputs):
     model = Sequential()
-    model.add(Conv2D(16, (5, 5), strides=(5, 5), padding='same',  kernel_regularizer=l2(0.00), input_shape=input_shape))
+    model.add(Conv2D(16, (5, 5), strides=(5, 5), padding='same', kernel_regularizer=l2(0.00), input_shape=input_shape))
     model.add(BatchNormalization())
     model.add(Conv2D(8, (5, 5), strides=(5, 5), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
     model.add(MaxPooling2D())
@@ -233,7 +233,7 @@ def main(args):
     input_shape = get_input_shape(image_paths, args.stack_size)
     model = build_model(input_shape, num_outputs)
 
-    optimizer = SGD(lr=0.1)
+    optimizer = SGD(lr=0.01)
     model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
