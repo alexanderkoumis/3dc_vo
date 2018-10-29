@@ -6,10 +6,33 @@ import random
 
 import cv2
 import numpy as np
-from keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D
+from keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU
 from keras.models import Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
+
+
+DEFAULT_STACK_SIZE = 3
+
+
+class ImageLoader(object):
+
+    def __init__(self, max_images=3000):
+        self.cache = {}
+        self.max_images = max_images
+
+    def load_image(self, image_path):
+        if image_path not in self.cache:
+            if len(self.cache) == self.max_images:
+                self.delete_random_image()
+            image = cv2.imread(image_path)
+            self.cache[image_path] = image
+        return self.cache[image_path]
+
+    def delete_random_image(self):
+        del_idx = np.random.randint(self.max_images)
+        del_key = list(self.cache.keys())[del_idx]
+        del self.cache[del_key]
 
 
 def get_stamps(stamps_path):
@@ -53,7 +76,10 @@ def load_filenames(base_dir):
         stamps_path = os.path.join(sequences_dir, sequence_num, 'times.txt')
         pose_path = os.path.join(pose_dir, '{}.txt'.format(sequence_num))
 
-        image_paths = [os.path.join(image_dir, image_path) for image_path in os.listdir(image_dir)]
+        image_filenames = os.listdir(image_dir)
+        image_filenames.sort(key=lambda x: int(x.split('.')[0]))
+
+        image_paths = [os.path.join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
         poses = get_poses(pose_path)
 
@@ -144,38 +170,19 @@ def calc_velocity(stamps, poses, scale_data=None):
     time_elapsed = last_stamp - first_stamp
     transform_world = np.linalg.inv(first_pose).dot(last_pose)
     R_world, t_world = transform_world[:3, :3], transform_world[:3, 3]
+
     t_cam = -R_world.T.dot(t_world)
 
-    velocity = t_cam / time_elapsed
-
-    if scale_data is not None:
-        magnitude, offset = scale_data
-        velocity -= offset
-        velocity /= magnitude
+    velocity = (t_cam / time_elapsed)[:2]
 
     return velocity
 
 
-def calc_scale_data(stamp_stacks, pose_stacks):
-
-    max_velocity = np.full(3, -np.inf)
-    min_velocity = np.full(3, np.inf)
-
-    for stamps, poses in zip(stamp_stacks, pose_stacks):
-        velocity = calc_velocity(stamps, poses)
-        max_velocity = np.maximum(max_velocity, velocity)
-        min_velocity = np.minimum(min_velocity, velocity)
-
-    velocity_magnitude = max_velocity - min_velocity
-    velocity_offset = min_velocity
-
-    return velocity_magnitude, velocity_offset
-
-
-def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, scale_data, train=True):
+def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, train=True):
 
     train_data, test_data = test_train_split(image_paths_raw, stamps_raw, poses_raw)
     image_paths_all, stamps_all, poses_all = train_data if train else test_data
+    image_loader = ImageLoader()
 
     while True:
 
@@ -184,10 +191,9 @@ def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, scale_
 
         for image_paths, stamps, poses in zip(image_paths_all, stamps_all, poses_all):
 
-            velocity = calc_velocity(stamps, poses, scale_data)
-            images = [cv2.imread(path) for path in image_paths]
-            images = [image / 255.0 for image in images]
-            stacked_images = np.dstack(images)
+            velocity = calc_velocity(stamps, poses)
+            images = [image_loader.load_image(path) for path in image_paths]
+            stacked_images = np.dstack(images).astype(float)
 
             stacked_images_all.append(stacked_images)
             velocity_all.append(velocity)
@@ -200,16 +206,15 @@ def dataset_generator(image_paths_raw, stamps_raw, poses_raw, batch_size, scale_
 
 def build_model(input_shape, num_outputs):
     model = Sequential()
-    model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.000), input_shape=input_shape))
+    model.add(Conv2D(16, (5, 5), strides=(5, 5), padding='same',  kernel_regularizer=l2(0.00), input_shape=input_shape))
+    model.add(BatchNormalization())
+    model.add(Conv2D(8, (5, 5), strides=(5, 5), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
     model.add(MaxPooling2D())
-    # model.add(Conv2D(16, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.000)))
-    # model.add(Dropout(0.1))
-    model.add(Conv2D(8, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.000)))
-    model.add(Dropout(0.01))
-    model.add(Conv2D(4, (5, 5), strides=(4, 4), padding='same', activation='relu', kernel_regularizer=l2(0.000)))
+    model.add(Conv2D(8, (5, 5), strides=(5, 5), padding='same', kernel_regularizer=l2(0.00)))
+    model.add(LeakyReLU())
     model.add(Flatten())
-    model.add(Dropout(0.4))
-    model.add(Dense(num_outputs, activation='relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(num_outputs, activation='linear'))
     return model
 
 
@@ -217,27 +222,27 @@ def get_input_shape(image_paths, stack_size):
     image = cv2.imread(image_paths[0][0])
     return image.shape * np.array([1, 1, stack_size])
 
+
 def main(args):
     image_paths, stamps, poses = load_filenames(args.base_dir)
     image_paths, stamps, poses = stack_data(image_paths, stamps, poses, args.stack_size)
-    scale = calc_scale_data(stamps, poses)
 
     # Just doing translational velocity for now
-    num_outputs = 3
+    num_outputs = 2
 
     input_shape = get_input_shape(image_paths, args.stack_size)
     model = build_model(input_shape, num_outputs)
 
-    optimizer = SGD(lr=0.005)
+    optimizer = SGD(lr=0.1)
     model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
-    history = model.fit_generator(dataset_generator(image_paths, stamps, poses, args.batch_size, scale, True),
-                                  epochs=100,
+    history = model.fit_generator(dataset_generator(image_paths, stamps, poses, args.batch_size, True),
+                                  epochs=2,
                                   steps_per_epoch=int(0.75*(len(image_paths)/args.batch_size)),
                                   validation_steps=int(0.25*(len(image_paths)/args.batch_size)),
                                   verbose=1,
-                                  validation_data=dataset_generator(image_paths, stamps, poses, args.batch_size, scale, False))
+                                  validation_data=dataset_generator(image_paths, stamps, poses, args.batch_size, False))
 
     model.save(args.model_file)
 
@@ -247,7 +252,7 @@ def parse_args():
     parser.add_argument('base_dir', help='Base directory')
     parser.add_argument('model_file', help='Model file')
     parser.add_argument('-b', '--batch_size', help='Batch size', default=10)
-    parser.add_argument('-s', '--stack_size', help='Size of image stack', default=6)
+    parser.add_argument('-s', '--stack_size', help='Size of image stack', default=DEFAULT_STACK_SIZE)
     args = parser.parse_args()
     return args
 
