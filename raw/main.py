@@ -32,12 +32,12 @@ def dataset_generator(image_paths_raw, odom_raw, batch_size, train=True):
         stacked_images_batch = []
         odom_batch = []
 
-        for image_paths, odom in zip(image_paths_all, odom_all):
+        for image_paths, odom_stack in zip(image_paths_all, odom_all):
 
             images = [image_loader.load_image(path) / 255.0 for path in image_paths]
-            stacked_images = np.dstack(images).astype(float)
+            stacked_images = np.dstack(images)
             stacked_images_batch.append(stacked_images)
-            odom_batch.append(odom)
+            odom_batch.append(odom_stack[0])
 
             if len(stacked_images_batch) == batch_size:
                 yield np.array(stacked_images_batch), np.array(odom_batch)

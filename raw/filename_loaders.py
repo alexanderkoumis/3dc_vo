@@ -69,7 +69,7 @@ def load_filenames_raw(base_dir, odom_idxs=[8, 9, 21, 22]):
         odom_all.append(odom_data)
         stamps_all.append(stamps)
 
-    return image_paths_all, odom_all, stamps_all, num_outputs
+    return image_paths_all, stamps_all, odom_all, num_outputs
 
 
 def load_filenames_odom(base_dir):
