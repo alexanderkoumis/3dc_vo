@@ -20,7 +20,14 @@ stamp_file = './data/image_02/timestamps.txt'
 model_file = './output.h5'
 
 
-
+class Plotter(object):
+    def __init__(self):
+        self.num = 0
+        self.figure = plt.figure()
+    def add_subplot(self):
+        self.num += 1
+        return self.figure.add_subplot(2, 2, self.num)
+plotter = Plotter()
 
 
 def get_timestamps(stamp_file):
@@ -45,48 +52,30 @@ def plot_velocities_2d():
     plt.plot(odom_data[:, 0], odom_data[:, 1], 'bo')
     plt.show()
 
-def get_trajectory_2d(predictions, odom_data, odom_scale, odom_mins, timestamps):
-
-    predictions *= odom_scale
-    predictions += odom_mins
-
-    odom_data *= odom_scale
-    odom_data += odom_mins
+def get_trajectory_2d(velocities, odom_scale, odom_mins, timestamps):
 
     # curr_pos = np.array([0.0, 0.0, 0.0])
-    curr_pos = [0, 0, 0]
-    positions = [[0, 0, 0]]
+    curr_pos = [0, 0]
+    positions = [[0, 0]]
 
-    curr_pos_gt = [0, 0, 0]
-    positions_gt = [[0, 0, 0]]
-
-    for i in range(len(predictions)-1):
+    for i in range(len(velocities)-1):
 
         stamp_curr = timestamps[i]
         stamp_next = timestamps[i+1]
 
-        pred = predictions[i]
-        vel_x, vel_y, vel_z = pred[0], pred[1], pred[2]
-
-        pos_gt = odom_data[i]
-        vel_x_gt, vel_y_gt, vel_z_gt = pos_gt[0], pos_gt[1], pos_gt[2]
+        vel = velocities[i]
+        vel_x, vel_y = vel[0], vel[1]
 
         elapsed = (stamp_next - stamp_curr).microseconds / 1000000.0
 
         curr_pos[0] += vel_x * elapsed
         curr_pos[1] += vel_y * elapsed
-        curr_pos[2] += vel_z * elapsed
         positions.append(deepcopy(curr_pos))
 
-        curr_pos_gt[0] += vel_x_gt * elapsed
-        curr_pos_gt[1] += vel_y_gt * elapsed
-        curr_pos_gt[2] += vel_z_gt * elapsed
-        positions_gt.append(deepcopy(curr_pos_gt))
-
-    return positions, positions_gt
+    return positions
     
-def plot_trajectory_2d(predictions, odom_data, odom_scale, odom_mins, timestamps):
-    positions, positions_gt = get_trajectory_2d(predictions, odom_data, odom_scale, odom_mins, timestamps)
+def plot_trajectory_2d(predictions, odom_data, timestamps):
+    positions, positions_gt = get_trajectory_2d(predictions, odom_data, timestamps)
 
     ax = plt.figure().add_subplot(111)
 
@@ -113,7 +102,7 @@ def plot_latlon(image_dir, odom_dir):
             x.append(lon)
             y.append(lat)
     line = Line2D(x, y)
-    ax = plt.figure().add_subplot(111)
+    ax = plotter.add_subplot()
     ax.add_line(line)
     ax.set_xlim(min(x), max(x))
     ax.set_ylim(min(y), max(y))
@@ -122,16 +111,14 @@ def plot_latlon(image_dir, odom_dir):
 
 
 
-image_data, odom_data, odom_mins, odom_scale = main.load_data(image_dir, odom_dir, 4)
+image_data, odom_data = main.load_data(image_dir, odom_dir, 4)
 timestamps = get_timestamps(stamp_file)
 
 model = load_model(model_file)
 predictions = model.predict(image_data)
 
 
-# plot_velocities_3d()
-# plot_velocities_2d()
-plot_trajectory_2d(predictions, odom_data, odom_scale, odom_mins, timestamps)
+plot_trajectory_2d(predictions, odom_data, timestamps)
 
 plot_latlon(image_dir, odom_dir)
 
