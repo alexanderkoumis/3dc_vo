@@ -69,7 +69,7 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         ]
     """
     image_paths_stacks = []
-    durations = []
+    stamps_new = []
     odoms_new = []
 
     for image_paths_seq, stamps_seq, odom_seq in zip(image_paths, stamps, odoms):
@@ -77,14 +77,12 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         for i in range(len(image_paths_seq)-stack_size+1):
 
             image_paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
-            duration = stamps_seq[i+stack_size-1] - stamps_seq[i]
-            odom = odom_seq[i]
 
             image_paths_stacks.append(image_paths_stack)
-            durations.append(duration)
-            odoms_new.append(odom)
+            stamps_new.append(stamps_seq[i])
+            odoms_new.append(odom_seq[i])
 
-    return image_paths_stacks, durations, odoms_new
+    return image_paths_stacks, stamps_new, odoms_new
 
 
 def load_filenames(base_dir, dataset_type, stack_size):
@@ -129,7 +127,7 @@ def test_saved_model(model_file, image_paths, odom, batch_size):
 def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.base_dir, args.dataset_type, args.stack_size)
-    image_paths, durations, odom = stack_data(image_paths, stamps, odom, args.stack_size)
+    image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
     num_batches = len(image_paths) / args.batch_size
 
     if args.evaluate:

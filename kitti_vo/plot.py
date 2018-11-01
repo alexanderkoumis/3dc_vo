@@ -55,15 +55,15 @@ def plot_velocities_2d(predictions, ground_truth):
                   max(predictions[:,1].max(), ground_truth[:,1].max()))
 
 
-def get_trajectory_2d(odoms, durations):
+def get_trajectory_2d(odoms, stamps):
 
     curr_pos = [0, 0]
     positions = [[0, 0]]
     theta_global = 0.0
 
-    for i in range(min(len(durations), len(odoms))):
+    for i in range(min(len(stamps)-1, len(odoms)-1)):
 
-        duration = durations[i]
+        duration = stamps[i+1] - stamps[i]
         odom = odoms[i]
         vel_x, vel_y, vel_theta = odom[0], odom[1], odom[2]
 
@@ -86,16 +86,16 @@ def get_trajectory_2d(odoms, durations):
     return positions
 
 
-def plot_trajectory_2d(predictions, ground_truth, durations):
+def plot_trajectory_2d(predictions, ground_truth, stamps):
 
-    positions = get_trajectory_2d(predictions, durations)
-    positions_gt = get_trajectory_2d(ground_truth, durations) * np.array([1, -1])
+    positions = get_trajectory_2d(predictions, stamps)
+    positions_gt = get_trajectory_2d(ground_truth, stamps) * np.array([-1, 1])
 
     ax = plotter_a.add_subplot()
     min_x, max_x = np.inf, -np.inf
     min_y, max_y = np.inf, -np.inf
 
-    for poss, vels, color in zip([positions, positions_gt], ['g', 'b']):
+    for poss, color in zip([positions, positions_gt], ['g', 'b']):
         x = [pos[0] for pos in poss]
         y = [pos[1] for pos in poss]
 
@@ -143,7 +143,7 @@ odom_dir = os.path.join(base_dir, seq_name, 'oxts', 'data')
 
 image_paths, stamps, odom, num_outputs = main.load_filenames(base_dir, dataset_type, stack_size)
 image_paths, stamps, odom = image_paths[seq_num], stamps[seq_num], odom[seq_num]
-image_paths, durations, _ = main.stack_data([image_paths], [stamps], [odom], stack_size)
+image_paths, stamps, _ = main.stack_data([image_paths], [stamps], [odom], stack_size)
 
 model = load_model(model_file)
 
@@ -156,7 +156,7 @@ for image_stack in image_paths:
 predictions = np.array(predictions)
 odom = np.array(odom)
 
-plot_trajectory_2d(predictions, odom, durations)
+plot_trajectory_2d(predictions, odom, stamps)
 plot_latlon(image_dir, odom_dir)
 plot_velocities_2d(predictions, odom)
 
