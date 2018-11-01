@@ -15,7 +15,7 @@ from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
 
 
-DEFAULT_STACK_SIZE = 3
+DEFAULT_STACK_SIZE = 5
 
 
 def dataset_generator(image_paths_raw, odom_raw, batch_size, high_memory, train=True):
@@ -145,13 +145,11 @@ def main(args):
     model.summary()
 
     model.fit_generator(dataset_generator(image_paths, odom, args.batch_size, args.high_memory, True),
-        epochs=2,
+        epochs=5,
         steps_per_epoch=int(0.75*num_batches),
         validation_steps=int(0.25*num_batches),
         verbose=1,
         validation_data=dataset_generator(image_paths, odom, args.batch_size, args.high_memory, False))
-
-    model.save(args.model_file)
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)

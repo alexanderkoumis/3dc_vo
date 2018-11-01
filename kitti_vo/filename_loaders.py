@@ -5,7 +5,7 @@ from dateutil.parser import parser
 import numpy as np
 
 
-def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 21, 22]):
+def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
     """
     Directory structure:
         base_dir/

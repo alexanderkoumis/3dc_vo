@@ -37,10 +37,10 @@ def plot_velocities_2d(predictions, ground_truth):
     range_pred = range(len(predictions))
     range_gt = range(len(ground_truth))
 
-    line_x_pred = Line2D(range_pred, predictions[:, 0], color='b')
-    line_x_gt = Line2D(range_gt, ground_truth[:, 0], color='r')
-    line_y_pred = Line2D(range_pred, predictions[:, 1], color='b')
-    line_y_gt = Line2D(range_gt, ground_truth[:, 1], color='r')
+    line_x_pred = Line2D(range_pred, predictions[:, 0], color='r')
+    line_x_gt = Line2D(range_gt, ground_truth[:, 0], color='b')
+    line_y_pred = Line2D(range_pred, predictions[:, 1], color='r')
+    line_y_gt = Line2D(range_gt, ground_truth[:, 1], color='b')
 
     ax_x.add_line(line_x_pred)
     ax_x.add_line(line_x_gt)
@@ -55,43 +55,59 @@ def plot_velocities_2d(predictions, ground_truth):
                   max(predictions[:,1].max(), ground_truth[:,1].max()))
 
 
-def get_trajectory_2d(velocities, timestamps):
+def get_trajectory_2d(odoms, durations):
 
-    # curr_pos = np.array([0.0, 0.0, 0.0])
     curr_pos = [0, 0]
     positions = [[0, 0]]
+    theta_global = 0.0
 
-    for i in range(len(velocities)-1):
+    for i in range(min(len(durations), len(odoms))):
 
-        stamp_curr = timestamps[i]
-        stamp_next = timestamps[i+1]
+        duration = durations[i]
+        odom = odoms[i]
+        vel_x, vel_y, vel_theta = odom[0], odom[1], odom[2]
 
-        vel = velocities[i]
-        vel_x, vel_y = vel[0], vel[1]
+        trans_local = np.array([vel_x * duration, vel_y * duration])
 
-        elapsed = (stamp_next - stamp_curr) / 1000000.0
+        rot = np.array([
+            [np.sin(theta_global),  np.cos(theta_global)],
+            [np.cos(theta_global), -np.sin(theta_global)]
+        ])
 
-        curr_pos[0] += vel_x * elapsed
-        curr_pos[1] += vel_y * elapsed
+        trans_global = rot.dot(trans_local)
+
+        curr_pos += trans_global
+
+        theta_local = vel_theta * duration
+        theta_global = (theta_global + theta_local) % (2 * np.pi)
+
         positions.append(deepcopy(curr_pos))
 
     return positions
 
 
-def plot_trajectory_2d(predictions, ground_truth, timestamps):
+def plot_trajectory_2d(predictions, ground_truth, durations):
 
-    positions = get_trajectory_2d(predictions, timestamps)
-    positions_gt = get_trajectory_2d(ground_truth, timestamps)
+    positions = get_trajectory_2d(predictions, durations)
+    positions_gt = get_trajectory_2d(ground_truth, durations) * np.array([1, -1])
 
     ax = plotter_a.add_subplot()
+    min_x, max_x = np.inf, -np.inf
+    min_y, max_y = np.inf, -np.inf
 
-    for poss in [positions, positions_gt]:
+    for poss, vels, color in zip([positions, positions_gt], ['g', 'b']):
         x = [pos[0] for pos in poss]
         y = [pos[1] for pos in poss]
-        line = Line2D(x, y)
+
+        line = Line2D(x, y, color=color)
         ax.add_line(line)
-        ax.set_xlim(min(x), max(x))
-        ax.set_ylim(min(y), max(y))
+        min_x = min(min_x, min(x))
+        max_x = max(max_x, max(x))
+        min_y = min(min_y, min(y))
+        max_y = max(max_y, max(y))
+
+    ax.set_xlim(min_x, max_x)
+    ax.set_ylim(min_y, max_y)
 
 
 def plot_latlon(image_dir, odom_dir):
@@ -113,21 +129,21 @@ def plot_latlon(image_dir, odom_dir):
     ax.set_ylim(min(y), max(y))
 
 
-seq_num = 0
-stack_size = 3
+seq_num = 6
+stack_size = 5
 
 dataset_type = 'raw'
 base_dir = '/home/ubuntu/Development/kitti_vo/datasets/raw/160_90'
-model_file = '/home/ubuntu/Development/kitti_vo/raw/model.h5'
+model_file = '/home/ubuntu/Development/kitti_vo/models/model_raw.h5'
 
 seq_name = os.listdir(base_dir)[seq_num]
 
 image_dir = os.path.join(base_dir, seq_name, 'image_02', 'data')
 odom_dir = os.path.join(base_dir, seq_name, 'oxts', 'data')
 
-image_paths, stamps, odom, num_outputs = main.load_filenames(base_dir, dataset_type)
+image_paths, stamps, odom, num_outputs = main.load_filenames(base_dir, dataset_type, stack_size)
 image_paths, stamps, odom = image_paths[seq_num], stamps[seq_num], odom[seq_num]
-image_paths, stamps_stacks, odom_stacks = main.stack_data([image_paths], [stamps], [odom], stack_size)
+image_paths, durations, _ = main.stack_data([image_paths], [stamps], [odom], stack_size)
 
 model = load_model(model_file)
 
@@ -140,7 +156,7 @@ for image_stack in image_paths:
 predictions = np.array(predictions)
 odom = np.array(odom)
 
-plot_trajectory_2d(predictions, odom, stamps)
+plot_trajectory_2d(predictions, odom, durations)
 plot_latlon(image_dir, odom_dir)
 plot_velocities_2d(predictions, odom)
 
