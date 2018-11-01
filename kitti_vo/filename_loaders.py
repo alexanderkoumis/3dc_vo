@@ -5,7 +5,7 @@ from dateutil.parser import parser
 import numpy as np
 
 
-def load_filenames_raw(base_dir, odom_idxs=[8, 9, 21, 22]):
+def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 21, 22]):
     """
     Directory structure:
         base_dir/
@@ -72,7 +72,7 @@ def load_filenames_raw(base_dir, odom_idxs=[8, 9, 21, 22]):
     return image_paths_all, stamps_all, odom_all, num_outputs
 
 
-def load_filenames_odom(base_dir):
+def load_filenames_odom(base_dir, stack_size):
 
     def get_stamps(stamps_path):
         result = []
@@ -91,22 +91,26 @@ def load_filenames_odom(base_dir):
                 result.append(pose)
         return result
 
-    def calc_velocity(stamps, poses, scale_data=None):
+    def calc_velocities(stamps, poses):
 
-        first_stamp, last_stamp = stamps[0], stamps[-1]
-        first_pose, last_pose = poses[0], poses[-1]
-        time_elapsed = last_stamp - first_stamp
+        velocities = []
 
-        transform_world = np.linalg.inv(first_pose).dot(last_pose)
-        R_world, t_world = transform_world[:3, :3], transform_world[:3, 3]
-        t_cam = -R_world.T.dot(t_world)
+        for i in range(len(stamps)-stack_size+1):
+            first_stamp, last_stamp = stamps[i], stamps[i+stack_size-1]
+            first_pose, last_pose = poses[i], poses[i+stack_size-1]
+            time_elapsed = last_stamp - first_stamp
 
-        # t_world = last_pose[:3, 3] - first_pose[:3, 3]
-        # t_cam = last_pose[:3, :3].T.dot(t_world)
+            transform_world = np.linalg.inv(first_pose).dot(last_pose)
+            R_world, t_world = transform_world[:3, :3], transform_world[:3, 3]
+            t_cam = -R_world.T.dot(t_world)
 
-        velocity = (t_cam / time_elapsed)[:2]
+            # t_world = last_pose[:3, 3] - first_pose[:3, 3]
+            # t_cam = last_pose[:3, :3].T.dot(t_world)
 
-        return velocity
+            velocity = (t_cam / time_elapsed)[:2]
+            velocities.append(velocity)
+
+        return velocities
 
     image_paths_all = []
     stamps_all = []
@@ -121,7 +125,7 @@ def load_filenames_odom(base_dir):
 
         # Only sequences 0-10 are provided for ground truth
         if int(sequence_num) > 10:
-            break
+            continue
 
         image_dir = join(sequences_dir, sequence_num, 'image_2')
         stamps_path = join(sequences_dir, sequence_num, 'times.txt')
@@ -133,13 +137,13 @@ def load_filenames_odom(base_dir):
         image_paths = [join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
         poses = get_poses(pose_path)
-        velocity = calc_velocity(stamps, poses)
+        velocities = calc_velocities(stamps, poses)
 
-        assert len(image_paths) == len(stamps) == len(poses), '{} {} {}'.format(
-            len(image_paths), len(stamps), len(poses))
+        assert len(image_paths) == len(stamps) == len(poses) == len(velocities)+stack_size-1, '{} {} {} {}'.format(
+            len(image_paths), len(stamps), len(poses), len(velocities))
 
-        image_paths_all.append(image_paths)
-        stamps_all.append(stamps)
-        velocity_all.append(velocity)
+        image_paths_all.append(image_paths[:-stack_size+1])
+        stamps_all.append(stamps[:-stack_size+1])
+        velocity_all.append(velocities)
 
-    return image_paths_all, velocity_all, stamps_all, num_outputs
+    return image_paths_all, stamps_all, velocity_all, num_outputs
