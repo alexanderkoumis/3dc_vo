@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
-import random
 import sys
-from os.path import join
 
 import cv2
 import numpy as np
@@ -118,8 +115,9 @@ def get_input_shape(image_paths, stack_size):
 
 
 def evaluate_model(model, image_paths, odom, batch_size):
+    num_batches = len(image_paths) / batch_size
     loss, accuracy = model.evaluate_generator(
-        dataset_generator(image_paths, odom, batch_size, False))
+        dataset_generator(image_paths, odom, batch_size, False), steps=num_batches)
     print('Final loss: {}, accuracy: {}'.format(loss, accuracy))
 
 
@@ -132,6 +130,7 @@ def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.base_dir, args.dataset_type)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
+    num_batches = len(image_paths) / args.batch_size
 
     if args.evaluate:
         print('Testing saved model {}'.format(args.model_file))
@@ -147,8 +146,8 @@ def main(args):
 
     model.fit_generator(dataset_generator(image_paths, odom, args.batch_size, True),
                         epochs=2,
-                        steps_per_epoch=int(0.75*(len(image_paths)/args.batch_size)),
-                        validation_steps=int(0.25*(len(image_paths)/args.batch_size)),
+                        steps_per_epoch=int(0.75*num_batches),
+                        validation_steps=int(0.25*num_batches),
                         verbose=1,
                         validation_data=dataset_generator(image_paths, odom, args.batch_size, False))
 
