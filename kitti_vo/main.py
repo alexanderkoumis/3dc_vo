@@ -16,9 +16,6 @@ from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
 
 
-DEFAULT_STACK_SIZE = 5
-
-
 def dataset_generator(image_paths_all, odom_all, batch_size, memory):
 
     image_loader = ImageLoader(memory)
@@ -203,7 +200,7 @@ def parse_args():
     parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
     parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
-    parser.add_argument('-s', '--stack_size', default=DEFAULT_STACK_SIZE, help='Size of image stack')
+    parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
     parser.add_argument('-t', '--test', action='store_true', help='Test saved model')
     parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
     args = parser.parse_args()
