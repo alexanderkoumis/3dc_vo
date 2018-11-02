@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import random
 import sys
 
 import cv2
@@ -18,23 +19,24 @@ from image_loader import ImageLoader
 DEFAULT_STACK_SIZE = 5
 
 
-def dataset_generator(image_paths_raw, odom_raw, batch_size, high_memory, train=True):
+def dataset_generator(image_paths_all, odom_all, batch_size, high_memory):
 
-    paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths_raw, odom_raw)
-    image_paths_all, odom_all = (paths_train, odom_train) if train else (paths_test, odom_test)
     image_loader = ImageLoader(high_memory)
+
+    input_target_list = list(zip(image_paths_all, odom_all))
+    random.shuffle(input_target_list)
 
     while True:
 
         stacked_images_batch = []
         odom_batch = []
 
-        for image_paths, odom_stack in zip(image_paths_all, odom_all):
+        for image_paths, odom in input_target_list:
 
             images = [image_loader.load_image(path) / 255.0 for path in image_paths]
             stacked_images = np.dstack(images)
             stacked_images_batch.append(stacked_images)
-            odom_batch.append(odom_stack)
+            odom_batch.append(odom)
 
             if len(stacked_images_batch) == batch_size:
                 yield np.array(stacked_images_batch), np.array(odom_batch)
@@ -135,6 +137,9 @@ def main(args):
         test_saved_model(args.model_file, image_paths, odom, args.batch_size, args.high_memory)
         sys.exit()
 
+
+    paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
+
     input_shape = get_input_shape(image_paths, args.stack_size)
     model = build_model(input_shape, num_outputs)
 
@@ -142,12 +147,12 @@ def main(args):
     model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
-    model.fit_generator(dataset_generator(image_paths, odom, args.batch_size, args.high_memory, True),
+    model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.high_memory),
         epochs=5,
         steps_per_epoch=int(0.75*num_batches),
         validation_steps=int(0.25*num_batches),
         verbose=1,
-        validation_data=dataset_generator(image_paths, odom, args.batch_size, args.high_memory, False))
+        validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.high_memory))
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
