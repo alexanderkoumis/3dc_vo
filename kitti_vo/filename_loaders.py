@@ -107,7 +107,7 @@ def load_filenames_odom(base_dir, stack_size):
             # t_world = last_pose[:3, 3] - first_pose[:3, 3]
             # t_cam = last_pose[:3, :3].T.dot(t_world)
 
-            velocity = (t_cam / time_elapsed)[:2]
+            velocity = (t_cam / time_elapsed)[:2].ravel()
             velocities.append(velocity)
 
         return velocities

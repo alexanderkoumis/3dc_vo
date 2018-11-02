@@ -84,7 +84,7 @@ def stack_data(image_paths, stamps, odoms, stack_size):
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
-    return image_paths_stacks, stamps_new, odoms_new
+    return image_paths_stacks, stamps_new, np.array(odoms_new)
 
 
 def get_input_shape(image_paths, stack_size):
@@ -172,6 +172,7 @@ def main(args):
 def main_high_mem(args):
     image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
+
     image_stacks = load_image_stacks(image_paths)
 
     images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
