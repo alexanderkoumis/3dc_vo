@@ -127,66 +127,40 @@ def build_model(input_shape, num_outputs):
     return model
 
 
-def evaluate_model(model, image_paths, odom, batch_size):
-    model = load_model(model_file)
-    num_batches = len(image_paths) / batch_size
-    loss, accuracy = model.evaluate_generator(
-        dataset_generator(image_paths, odom, batch_size, False), steps=num_batches)
-    print('Final loss: {}, accuracy: {}'.format(loss, accuracy))
-
-
 def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
-    num_batches = len(image_paths) / args.batch_size
 
-    if args.test:
-        print('Testing saved model {}'.format(args.model_file))
-        evaluate_model(args.model_file, image_paths, odom, args.batch_size)
-        sys.exit()
+    if args.resume:
+        model = load_model(args.model_file)
+    else:
+        input_shape = get_input_shape(image_paths, args.stack_size)
+        model = build_model(input_shape, num_outputs)
+        model.compile(loss='mean_squared_error', optimizer=SGD(lr=0.01, clipnorm=1.0), metrics=['accuracy'])
 
-    paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
-
-    input_shape = get_input_shape(image_paths, args.stack_size)
-    model = build_model(input_shape, num_outputs)
-
-    optimizer = SGD(lr=0.01, clipnorm=1.0)
-    model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
-    model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.memory),
-        epochs=args.epochs,
-        steps_per_epoch=int(0.75*num_batches),
-        validation_steps=int(0.25*num_batches),
-        verbose=1,
-        validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory))
+    if args.memory == 'high':
+        image_stacks = load_image_stacks(image_paths)
+        images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
 
-    print('Saving model to {}'.format(args.model_file))
-    model.save(args.model_file)
+        model.fit(images_train, odom_train,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            validation_split=1.0/4.0,
+            verbose=1,
+            validation_data=(images_test, odom_test))
+    else:
+        num_batches = len(image_paths) / args.batch_size
+        paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
 
-
-def main_high_mem(args):
-    image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
-    image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
-
-    image_stacks = load_image_stacks(image_paths)
-
-    images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
-
-    input_shape = get_input_shape(image_paths, args.stack_size)
-    model = build_model(input_shape, num_outputs)
-
-    optimizer = SGD(lr=0.01, clipnorm=1.0)
-    model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
-    model.summary()
-
-    model.fit(images_train, odom_train,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        validation_split=1.0/4.0,
-        verbose=1,
-        validation_data=(images_test, odom_test))
+        model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.memory),
+            epochs=args.epochs,
+            steps_per_epoch=int(0.75*num_batches),
+            validation_steps=int(0.25*num_batches),
+            verbose=1,
+            validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory))
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
@@ -201,8 +175,8 @@ def parse_args():
     parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
-    parser.add_argument('-t', '--test', action='store_true', help='Test saved model')
     parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
+    parser.add_argument('-r', '--resume', action='store_true', help='Resume training on model')
     args = parser.parse_args()
 
     if args.memory not in {'low', 'medium', 'high'}:
@@ -213,8 +187,4 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-
-    if args.memory == 'high':
-        main_high_mem(args)
-    else:
-        main(args)
+    main(args)
