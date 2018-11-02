@@ -33,7 +33,7 @@ def dataset_generator(image_paths_all, odom_all, batch_size, memory):
 
         for image_paths, odom in input_target_list:
 
-            images = [image_loader.load_image(path) / 255.0 for path in image_paths]
+            images = [image_loader.load_image(path)/255.0 for path in image_paths]
             stacked_images = np.dstack(images)
             stacked_images_batch.append(stacked_images)
             odom_batch.append(odom)
@@ -87,6 +87,11 @@ def stack_data(image_paths, stamps, odoms, stack_size):
     return image_paths_stacks, stamps_new, odoms_new
 
 
+def get_input_shape(image_paths, stack_size):
+    image = cv2.imread(image_paths[0][0])
+    return image.shape * np.array([1, 1, stack_size])
+
+
 def load_filenames(data_dir, dataset_type, stack_size):
     loader = {
         'raw': load_filenames_raw,
@@ -95,12 +100,20 @@ def load_filenames(data_dir, dataset_type, stack_size):
     return loader[dataset_type](data_dir, stack_size)
 
 
-def load_image_stacks(image_paths):
-    image_stacks = []
-    for path_stack in image_paths:
-        image_stack = [cv2.imread(path) / 255.0 for path in path_stack]
-        image_stacks.append(image_stack)
-    return np.array(image_stacks)
+def load_image_stacks(image_path_stacks):
+
+    num_stacks = len(image_path_stacks)
+    stack_size = len(image_path_stacks[0])
+    rows, cols, channels = get_input_shape(image_path_stacks, stack_size)
+    shape = (num_stacks, rows, cols, channels)
+
+    image_stacks = np.zeros(shape, dtype=np.float32)
+
+    for idx, path_stack in enumerate(image_path_stacks):
+        image_stack = np.dstack(cv2.imread(path) for path in path_stack) / 255.0
+        image_stacks[idx] = image_stack / 255.0
+
+    return image_stacks
 
 
 def build_model(input_shape, num_outputs):
@@ -115,11 +128,6 @@ def build_model(input_shape, num_outputs):
     model.add(Dropout(0.5))
     model.add(Dense(num_outputs, activation='linear'))
     return model
-
-
-def get_input_shape(image_paths, stack_size):
-    image = cv2.imread(image_paths[0][0])
-    return image.shape * np.array([1, 1, stack_size])
 
 
 def evaluate_model(model, image_paths, odom, batch_size):
