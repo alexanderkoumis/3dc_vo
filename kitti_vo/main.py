@@ -19,9 +19,9 @@ from image_loader import ImageLoader
 DEFAULT_STACK_SIZE = 5
 
 
-def dataset_generator(image_paths_all, odom_all, batch_size, high_memory):
+def dataset_generator(image_paths_all, odom_all, batch_size, memory):
 
-    image_loader = ImageLoader(high_memory)
+    image_loader = ImageLoader(memory)
 
     input_target_list = list(zip(image_paths_all, odom_all))
     random.shuffle(input_target_list)
@@ -87,12 +87,20 @@ def stack_data(image_paths, stamps, odoms, stack_size):
     return image_paths_stacks, stamps_new, odoms_new
 
 
-def load_filenames(base_dir, dataset_type, stack_size):
+def load_filenames(data_dir, dataset_type, stack_size):
     loader = {
         'raw': load_filenames_raw,
         'odom': load_filenames_odom
     }
-    return loader[dataset_type](base_dir, stack_size)
+    return loader[dataset_type](data_dir, stack_size)
+
+
+def load_image_stacks(image_paths):
+    image_stacks = []
+    for path_stack in image_paths:
+        image_stack = [cv2.imread(path) / 255.0 for path in path_stack]
+        image_stacks.append(image_stack)
+    return np.array(image_stacks)
 
 
 def build_model(input_shape, num_outputs):
@@ -115,28 +123,23 @@ def get_input_shape(image_paths, stack_size):
 
 
 def evaluate_model(model, image_paths, odom, batch_size):
+    model = load_model(model_file)
     num_batches = len(image_paths) / batch_size
     loss, accuracy = model.evaluate_generator(
         dataset_generator(image_paths, odom, batch_size, False), steps=num_batches)
     print('Final loss: {}, accuracy: {}'.format(loss, accuracy))
 
 
-def test_saved_model(model_file, image_paths, odom, batch_size):
-    model = load_model(model_file)
-    evaluate_model(model, image_paths, odom, batch_size)
-
-
 def main(args):
 
-    image_paths, stamps, odom, num_outputs = load_filenames(args.base_dir, args.dataset_type, args.stack_size)
+    image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
     num_batches = len(image_paths) / args.batch_size
 
     if args.evaluate:
         print('Testing saved model {}'.format(args.model_file))
-        test_saved_model(args.model_file, image_paths, odom, args.batch_size, args.high_memory)
+        evaluate_model(args.model_file, image_paths, odom, args.batch_size)
         sys.exit()
-
 
     paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
 
@@ -147,31 +150,64 @@ def main(args):
     model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
-    model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.high_memory),
+    model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.memory),
         epochs=5,
         steps_per_epoch=int(0.75*num_batches),
         validation_steps=int(0.25*num_batches),
         verbose=1,
-        validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.high_memory))
+        validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory))
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
 
-    evaluate_model(model, image_paths, odom, args.batch_size)
+
+def main_high_mem(args):
+    image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
+    image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
+    image_stacks = load_image_stacks(image_paths)
+
+    images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
+
+    input_shape = get_input_shape(image_paths, args.stack_size)
+    model = build_model(input_shape, num_outputs)
+
+    optimizer = SGD(lr=0.01, clipnorm=1.0)
+    model.compile(loss='mean_squared_error', optimizer=optimizer, metrics=['accuracy'])
+    model.summary()
+
+    model.fit(images_train, odom_train,
+        epochs=5,
+        batch_size=args.batch_size,
+        validation_split=1.0/4.0,
+        verbose=1,
+        validation_data=(images_test, odom_test))
+
+    print('Saving model to {}'.format(args.model_file))
+    model.save(args.model_file)
 
 
 def parse_args():
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('base_dir', help='Base directory')
+    parser.add_argument('data_dir', help='Dataset directory')
     parser.add_argument('model_file', help='Model file')
     parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
     parser.add_argument('-b', '--batch_size', default=10, help='Batch size')
     parser.add_argument('-s', '--stack_size', default=DEFAULT_STACK_SIZE, help='Size of image stack')
     parser.add_argument('-e', '--evaluate', action='store_true', help='Test saved model')
-    parser.add_argument('-m', '--high_memory', action='store_true', help='Enable high memory usage')
+    parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
     args = parser.parse_args()
+
+    if args.memory not in {'low', 'medium', 'high'}:
+        sys.exit('--memory option must be one of low, medium, or high')
+
     return args
 
 
 if __name__ == '__main__':
-    main(parse_args())
+    args = parse_args()
+
+    if args.memory == 'high':
+        main_high_mem(args)
+    else:
+        main(args)

@@ -4,9 +4,9 @@ import numpy as np
 
 class ImageLoader(object):
 
-    def __init__(self, high_memory=False, max_images=3000):
+    def __init__(self, memory_strategy, max_images=3000):
         self.cache = {}
-        self.max_images = float('inf') if high_memory else max_images
+        self.max_images = float('inf') if memory_strategy == 'medium' else max_images
 
     def load_image(self, image_path):
         if image_path not in self.cache:
