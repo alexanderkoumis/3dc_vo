@@ -144,7 +144,7 @@ def main(args):
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
     num_batches = len(image_paths) / args.batch_size
 
-    if args.evaluate:
+    if args.test:
         print('Testing saved model {}'.format(args.model_file))
         evaluate_model(args.model_file, image_paths, odom, args.batch_size)
         sys.exit()
@@ -159,7 +159,7 @@ def main(args):
     model.summary()
 
     model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.memory),
-        epochs=5,
+        epochs=args.epochs,
         steps_per_epoch=int(0.75*num_batches),
         validation_steps=int(0.25*num_batches),
         verbose=1,
@@ -185,7 +185,7 @@ def main_high_mem(args):
     model.summary()
 
     model.fit(images_train, odom_train,
-        epochs=5,
+        epochs=args.epochs,
         batch_size=args.batch_size,
         validation_split=1.0/4.0,
         verbose=1,
@@ -201,9 +201,10 @@ def parse_args():
     parser.add_argument('data_dir', help='Dataset directory')
     parser.add_argument('model_file', help='Model file')
     parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
-    parser.add_argument('-b', '--batch_size', default=10, help='Batch size')
+    parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size')
+    parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', default=DEFAULT_STACK_SIZE, help='Size of image stack')
-    parser.add_argument('-e', '--evaluate', action='store_true', help='Test saved model')
+    parser.add_argument('-t', '--test', action='store_true', help='Test saved model')
     parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
     args = parser.parse_args()
 
