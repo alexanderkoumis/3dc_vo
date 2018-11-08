@@ -11,6 +11,7 @@ from keras.models import Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
@@ -106,9 +107,15 @@ def load_image_stacks(image_path_stacks):
 
     image_stacks = np.zeros(shape, dtype=np.float32)
 
+    paths = set([path for path_stack in image_path_stacks for path in path_stack])
+    normalize_images = np.array([cv2.imread(path).flatten()/255.0 for path in paths], dtype=np.float32)
+    normalize_images = StandardScaler().fit_transform(normalize_images)
+
+    image_cache = {path: img.reshape((rows, cols, 3)) for path, img in zip(paths, normalize_images)}
+
     for idx, path_stack in enumerate(image_path_stacks):
-        image_stack = np.dstack(cv2.imread(path) for path in path_stack) / 255.0
-        image_stacks[idx] = image_stack / 255.0
+        image_stack = np.dstack(image_cache[path] for path in path_stack)
+        image_stacks[idx] = image_stack
 
     return image_stacks
 
@@ -137,7 +144,7 @@ def main(args):
     else:
         input_shape = get_input_shape(image_paths, args.stack_size)
         model = build_model(input_shape, num_outputs)
-        model.compile(loss='mean_squared_error', optimizer=SGD(lr=0.01, clipnorm=1.0), metrics=['accuracy'])
+        model.compile(loss='mean_squared_error', optimizer=SGD(lr=0.01, clipnorm=1.0))
 
     model.summary()
 
