@@ -5,6 +5,7 @@ from copy import deepcopy
 from dateutil.parser import parser
 
 import matplotlib.pyplot as plt
+from scipy.signal import savgol_filter
 from matplotlib.lines import Line2D
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -25,34 +26,40 @@ class Plotter(object):
         self.num += 1
         return self.figure.add_subplot(self.rows, self.cols, self.num)
 
-plotter_a = Plotter()
-plotter_b = Plotter(2, 1)
+plotter_a = Plotter(1, 1)
+plotter_b = Plotter(3, 1)
+
+
+class ImageLoader(object):
+    def __init__(self):
+        self.cache = {}
+    def load_image(self, path):
+        if path not in self.cache:
+            self.cache[path] = cv2.imread(path)
+        return self.cache[path]
+
+loader = ImageLoader()
 
 
 def plot_velocities_2d(predictions, ground_truth):
 
-    ax_x = plotter_b.add_subplot()
-    ax_y = plotter_b.add_subplot()
-
     range_pred = range(len(predictions))
     range_gt = range(len(ground_truth))
 
-    line_x_pred = Line2D(range_pred, predictions[:, 0], color='r')
-    line_x_gt = Line2D(range_gt, ground_truth[:, 0], color='b')
-    line_y_pred = Line2D(range_pred, predictions[:, 1], color='r')
-    line_y_gt = Line2D(range_gt, ground_truth[:, 1], color='b')
+    for i, label in enumerate(['y', 'x', 'theta']):
 
-    ax_x.add_line(line_x_pred)
-    ax_x.add_line(line_x_gt)
-    ax_y.add_line(line_y_pred)
-    ax_y.add_line(line_y_gt)
+        ax = plotter_b.add_subplot()
+        ax.set_ylabel(label)
 
-    ax_x.set_xlim(0, len(predictions))
-    ax_y.set_xlim(0, len(predictions))
-    ax_x.set_ylim(min(predictions[:,0].min(), ground_truth[:,0].min()),
-                  max(predictions[:,0].max(), ground_truth[:,0].max()))
-    ax_y.set_ylim(min(predictions[:,1].min(), ground_truth[:,1].min()),
-                  max(predictions[:,1].max(), ground_truth[:,1].max()))
+        line_pred = Line2D(range_pred, predictions[:, i], color='r')
+        line_gt = Line2D(range_gt, ground_truth[:, i], color='b')
+
+        ax.add_line(line_pred)
+        ax.add_line(line_gt)
+
+        ax.set_xlim(0, len(predictions))
+        ax.set_ylim(min(predictions[:,i].min(), ground_truth[:,i].min()),
+                    max(predictions[:,i].max(), ground_truth[:,i].max()))
 
 
 def get_trajectory_2d(odoms, stamps):
@@ -89,11 +96,12 @@ def get_trajectory_2d(odoms, stamps):
 def plot_trajectory_2d(predictions, ground_truth, stamps):
 
     positions = get_trajectory_2d(predictions, stamps)
-    positions_gt = get_trajectory_2d(ground_truth, stamps) * np.array([-1, 1])
+    positions_gt = get_trajectory_2d(ground_truth, stamps)
 
     ax = plotter_a.add_subplot()
     min_x, max_x = np.inf, -np.inf
     min_y, max_y = np.inf, -np.inf
+    min_min, max_max = np.inf, -np.inf
 
     for poss, color in zip([positions, positions_gt], ['g', 'b']):
         x = [pos[0] for pos in poss]
@@ -105,9 +113,11 @@ def plot_trajectory_2d(predictions, ground_truth, stamps):
         max_x = max(max_x, max(x))
         min_y = min(min_y, min(y))
         max_y = max(max_y, max(y))
+        max_max = max(max_x, max_y)
+        min_min = min(min_x, min_y)
 
-    ax.set_xlim(min_x, max_x)
-    ax.set_ylim(min_y, max_y)
+    ax.set_xlim(min_min, max_max)
+    ax.set_ylim(min_min, max_max)
 
 
 def plot_latlon(image_dir, odom_dir):
@@ -129,12 +139,18 @@ def plot_latlon(image_dir, odom_dir):
     ax.set_ylim(min(y), max(y))
 
 
-seq_num = 6
+seq_num = 7
 stack_size = 5
 
 dataset_type = 'raw'
-base_dir = '/home/ubuntu/Development/kitti_vo/datasets/raw/160_90'
-model_file = '/home/ubuntu/Development/kitti_vo/models/model_raw.h5'
+
+# kitti_dir = '/home/ubuntu/Development/kitti_vo'
+kitti_dir = '/Users/alexander/Development/kitti_vo'
+base_dir = os.path.join(kitti_dir, 'datasets', 'raw', '160_90')
+model_file = os.path.join(kitti_dir, 'models', 'model_raw.h5')
+model_pos_y_file = os.path.join(kitti_dir, 'models', 'model_raw_y.h5')
+model_pos_x_file = os.path.join(kitti_dir, 'models', 'model_raw_x.h5')
+model_angle_file = os.path.join(kitti_dir, 'models', 'model_raw_angle.h5')
 
 seq_name = os.listdir(base_dir)[seq_num]
 
@@ -143,21 +159,56 @@ odom_dir = os.path.join(base_dir, seq_name, 'oxts', 'data')
 
 image_paths, stamps, odom, num_outputs = main.load_filenames(base_dir, dataset_type, stack_size)
 image_paths, stamps, odom = image_paths[seq_num], stamps[seq_num], odom[seq_num]
-image_paths, stamps, _ = main.stack_data([image_paths], [stamps], [odom], stack_size)
+image_paths, stamps, odom = main.stack_data([image_paths], [stamps], [odom], stack_size)
 
-model = load_model(model_file)
+image_stacks = main.load_image_stacks(image_paths)
 
-predictions = []
-for image_stack in image_paths:
-    images = [cv2.imread(path) / 255.0 for path in image_stack]
-    stacked_images = np.dstack(images)[np.newaxis]
-    prediction = model.predict(stacked_images).ravel()
-    predictions.append(prediction)
-predictions = np.array(predictions)
-odom = np.array(odom)
+odom_gt = np.array(odom)
 
-plot_trajectory_2d(predictions, odom, stamps)
-plot_latlon(image_dir, odom_dir)
-plot_velocities_2d(predictions, odom)
+seperate = True
+
+if seperate:
+
+    model_pos_y = load_model(model_pos_y_file)
+    model_pos_x = load_model(model_pos_x_file)
+    model_angle = load_model(model_angle_file)
+
+    predictions_pos_y = []
+    predictions_pos_x = []
+    predictions_angle = []
+    for idx, image_stack in enumerate(image_stacks):
+        pred_pos_y = model_pos_y.predict(image_stack[np.newaxis]).ravel()
+        pred_pos_x = model_pos_x.predict(image_stack[np.newaxis]).ravel()
+        pred_angle = model_angle.predict(image_stack[np.newaxis]).ravel()
+        # pred_pos_y = odom_gt[idx, 0].ravel()
+        # pred_pos_x = odom_gt[idx, 1].ravel()
+        # pred_angle = odom_gt[idx, 2].ravel()
+        predictions_pos_y.append(pred_pos_y)
+        predictions_pos_x.append(pred_pos_x)
+        predictions_angle.append(pred_angle)
+
+    predictions_pos_y = np.array(predictions_pos_y)
+    predictions_pos_x = np.array(predictions_pos_x)
+    predictions_angle = np.array(predictions_angle)
+    
+    predictions = np.hstack((predictions_pos_y, predictions_pos_x, predictions_angle))
+
+else:
+
+    model = load_model(model_file)
+    predictions = []
+    for image_stack in image_paths:
+        images = [cv2.imread(path) / 255.0 for path in image_stack]
+        stacked_images = np.dstack(images)[np.newaxis]
+        prediction = model.predict(stacked_images).ravel()
+        predictions.append(prediction)
+    predictions = np.array(predictions)
+
+
+# predictions[:, 2] = savgol_filter(predictions[:, 2], 25, 3)
+
+plot_trajectory_2d(predictions, odom_gt, stamps)
+# plot_latlon(image_dir, odom_dir)
+plot_velocities_2d(predictions, odom_gt)
 
 plt.show()
