@@ -6,6 +6,7 @@ import sys
 
 import cv2
 import numpy as np
+from keras.callbacks import ModelCheckpoint
 from keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU
 from keras.models import Sequential, load_model
 from keras.optimizers import SGD
@@ -68,6 +69,7 @@ def stack_data(image_paths, stamps, odoms, stack_size):
             etc
         ]
     """
+
     image_paths_stacks = []
     stamps_new = []
     odoms_new = []
@@ -82,7 +84,34 @@ def stack_data(image_paths, stamps, odoms, stack_size):
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
-    return image_paths_stacks, stamps_new, np.array(odoms_new)
+    high_low_ratio = 0.5
+    high_angle_thresh = 0.13
+    high_angle_count = sum(abs(odom) > high_angle_thresh for odom in odoms_new)
+    low_angle_keep = int(high_angle_count * high_low_ratio)
+
+    image_paths_stacks_new_new = []
+    stamps_new_new = []
+    odoms_new_new = []
+    idxs = []
+
+    for idx, (path_stack, stamp, odom) in enumerate(zip(image_paths_stacks, stamps_new, odoms_new)):
+        if abs(odom) > high_angle_thresh:
+            image_paths_stacks_new_new.append(path_stack)
+            stamps_new_new.append(stamp)
+            odoms_new_new.append(odom)
+        else:
+            idxs.append(idx)
+
+    keep_idxs = np.random.choice(idxs, low_angle_keep, replace=False)
+    for keep_idx in keep_idxs:
+        image_paths_stacks_new_new.append(image_paths_stacks[keep_idx])
+        stamps_new_new.append(stamps_new[keep_idx])
+        odoms_new_new.append(odoms_new[keep_idx])
+
+    high_angle_count = sum(abs(odom) > high_angle_thresh for odom in odoms_new_new)
+    low_angle_count = sum(abs(odom) < high_angle_thresh for odom in odoms_new_new)
+
+    return image_paths_stacks_new_new, stamps_new_new, np.array(odoms_new_new)
 
 
 def get_input_shape(image_paths, stack_size):
@@ -99,7 +128,7 @@ def load_filenames(data_dir, dataset_type, stack_size):
 
 
 def load_image_stacks(image_path_stacks):
-
+    """Loads image path stacks into memory"""
     num_stacks = len(image_path_stacks)
     stack_size = len(image_path_stacks[0])
     rows, cols, channels = get_input_shape(image_path_stacks, stack_size)
@@ -108,24 +137,39 @@ def load_image_stacks(image_path_stacks):
     image_stacks = np.zeros(shape, dtype=np.float32)
 
     paths = set([path for path_stack in image_path_stacks for path in path_stack])
-    image_cache = {path: cv2.imread(path) for path in paths}
+
+    # Load all images into memory, flatten them, and normalize by channel
+    images_flat = np.array([cv2.imread(path).flatten()/255.0 for path in paths], dtype=np.float32)
+    for channel in range(3):
+        start, end = channel * rows * cols, (channel+1) * rows * cols
+        images_flat[:, start:end] = StandardScaler().fit_transform(images_flat[:, start:end])
+
+    image_cache = {path: img.reshape((rows, cols, 3)) for path, img in zip(paths, images_flat)}
 
     for idx, path_stack in enumerate(image_path_stacks):
-        image_stacks[idx] = np.dstack(image_cache[path] for path in path_stack) / 255.0
+        image_stack = np.dstack(image_cache[path] for path in path_stack)
+        image_stacks[idx] = image_stack
 
     return image_stacks
 
 
 def build_model(input_shape, num_outputs):
     model = Sequential()
-    model.add(Conv2D(16, (5, 5), strides=(5, 5), padding='same', kernel_regularizer=l2(0.00), input_shape=input_shape))
+    model.add(Conv2D(64, (4, 4), strides=(4, 4), padding='same', kernel_regularizer=l2(0.00), input_shape=input_shape))
     model.add(BatchNormalization())
-    model.add(Conv2D(8, (5, 5), strides=(5, 5), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
+    model.add(Conv2D(32, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
     model.add(MaxPooling2D())
-    model.add(Conv2D(8, (5, 5), strides=(5, 5), padding='same', kernel_regularizer=l2(0.00)))
+    model.add(Dropout(0.1))
+    model.add(BatchNormalization())
+    model.add(Conv2D(16, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
+    model.add(Conv2D(16, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
+    model.add(MaxPooling2D())
+    model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
+    model.add(Dense(128, activation='relu'))
     model.add(LeakyReLU())
     model.add(Flatten())
-    model.add(Dropout(0.5))
+    model.add(Dropout(0.3))
     model.add(Dense(num_outputs, activation='linear'))
     return model
 
@@ -140,7 +184,7 @@ def main(args):
     else:
         input_shape = get_input_shape(image_paths, args.stack_size)
         model = build_model(input_shape, num_outputs)
-        model.compile(loss='mean_squared_error', optimizer=SGD(lr=0.01))
+        model.compile(loss='mean_squared_error', optimizer='adam')
 
     model.summary()
 
@@ -151,9 +195,9 @@ def main(args):
         model.fit(images_train, odom_train,
             epochs=args.epochs,
             batch_size=args.batch_size,
-            validation_split=1.0/4.0,
             verbose=1,
-            validation_data=(images_test, odom_test))
+            validation_data=(images_test, odom_test),
+            callbacks=[ModelCheckpoint(args.model_file)])
     else:
         num_batches = len(image_paths) / args.batch_size
         paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
@@ -163,7 +207,8 @@ def main(args):
             steps_per_epoch=int(0.75*num_batches),
             validation_steps=int(0.25*num_batches),
             verbose=1,
-            validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory))
+            validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory),
+            callbacks=[ModelCheckpoint(args.model_file)])
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)

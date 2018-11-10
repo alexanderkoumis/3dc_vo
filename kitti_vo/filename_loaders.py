@@ -1,8 +1,9 @@
 import os
 from os.path import join
-from dateutil.parser import parser
 
 import numpy as np
+
+import stamp_parser
 
 
 def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
@@ -31,6 +32,7 @@ def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
         21 wl:    angular rate around leftward axis (rad/s)
         22 wu:    angular rate around upward axis (rad/s)
     """
+
     def load_odometry(odom_path, image_name):
         """Load target odometry"""
         full_path = join(odom_path, '{}.txt'.format(image_name))
@@ -45,7 +47,7 @@ def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
     num_outputs = len(odom_idxs)
 
     sequences = os.listdir(base_dir)
-    stamp_parser = parser()
+    parser = stamp_parser.StampParser()
 
     for sequence in sequences:
 
@@ -63,7 +65,7 @@ def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
 
         image_full_fnames = [join(image_data_dir, fname) for fname in image_fnames]
         odom_data = [load_odometry(oxts_data_dir, name) for name in image_names]
-        stamps = [stamp_parser.parse(val).timestamp() for val in open(oxts_stamps_txt).readlines()]
+        stamps = [parser.parse(val) for val in open(oxts_stamps_txt).readlines()]
 
         image_paths_all.append(image_full_fnames)
         odom_all.append(odom_data)
