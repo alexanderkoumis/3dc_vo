@@ -6,7 +6,7 @@ import numpy as np
 import stamp_parser
 
 
-def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
+def load_filenames_raw(base_dir, stack_size, odom_idxs=[5, 8, 9]):
     """
     Directory structure:
         base_dir/
@@ -22,15 +22,16 @@ def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 22]):
                         [d+].txt
 
     Odom data format:
-        8  vf:    forward velocity, i.e. parallel to earth-surface (m/s)
-        9  vl:    leftward velocity, i.e. parallel to earth-surface (m/s)
-        10 vu:    upward velocity, i.e. perpendicular to earth-surface (m/s)
-        14 af:    forward acceleration (m/s^2)
-        15 al:    leftward acceleration (m/s^2)
-        16 au:    upward acceleration (m/s^2)
-        20 wf:    angular rate around forward axis (rad/s)
-        21 wl:    angular rate around leftward axis (rad/s)
-        22 wu:    angular rate around upward axis (rad/s)
+        5  yaw: heading (rad), 0 = east, positive = counter clockwise, range: -pi .. +pi
+        8   vf: forward velocity, i.e. parallel to earth-surface (m/s)
+        9   vl: leftward velocity, i.e. parallel to earth-surface (m/s)
+        10  vu: upward velocity, i.e. perpendicular to earth-surface (m/s)
+        14  af: forward acceleration (m/s^2)
+        15  al: leftward acceleration (m/s^2)
+        16  au: upward acceleration (m/s^2)
+        20  wf: angular rate around forward axis (rad/s)
+        21  wl: angular rate around leftward axis (rad/s)
+        22  wu: angular rate around upward axis (rad/s)
     """
 
     def load_odometry(odom_path, image_name):

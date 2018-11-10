@@ -7,7 +7,7 @@ import sys
 import cv2
 import numpy as np
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Dense, Conv2D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU
+from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D
 from keras.models import Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
@@ -82,8 +82,26 @@ def stack_data(image_paths, stamps, odoms, stack_size):
 
             image_paths_stacks.append(image_paths_stack)
             stamps_new.append(stamps_seq[i])
-            odoms_new.append(odom_seq[i])
+            # time_elapsed = stamps_seq[i+stack_size-1] - stamps_seq[i]
 
+            # theta_start = odom_seq[i][0]
+            # theta_end = odom_seq[i+stack_size-1][0]
+            # theta_diff = theta_end - theta_start
+
+            # if theta_diff > np.pi:
+            #     theta_diff -= 2.0 * np.pi
+
+            # if theta_diff < -np.pi:
+            #     theta_diff += 2.0 * np.pi
+
+            # theta_vel = theta_diff / time_elapsed
+
+            # odoms_new.append(theta_vel)
+            odoms_new.append(odom_seq[i][0])
+
+    return image_paths_stacks, stamps_new, np.array(odoms_new)
+
+    # Break this out into seperate function, only for angular velocity
     high_low_ratio = 0.5
     high_angle_thresh = 0.13
     high_angle_count = sum(abs(odom) > high_angle_thresh for odom in odoms_new)
@@ -108,15 +126,13 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         stamps_new_new.append(stamps_new[keep_idx])
         odoms_new_new.append(odoms_new[keep_idx])
 
-    high_angle_count = sum(abs(odom) > high_angle_thresh for odom in odoms_new_new)
-    low_angle_count = sum(abs(odom) < high_angle_thresh for odom in odoms_new_new)
-
     return image_paths_stacks_new_new, stamps_new_new, np.array(odoms_new_new)
 
 
-def get_input_shape(image_paths, stack_size):
-    image = cv2.imread(image_paths[0][0])
-    return image.shape * np.array([1, 1, stack_size])
+def get_input_shape(image_paths):
+    stack_size = len(image_paths[0])
+    rows, cols, channels = cv2.imread(image_paths[0][0]).shape
+    return rows, cols, stack_size, channels
 
 
 def load_filenames(data_dir, dataset_type, stack_size):
@@ -129,25 +145,34 @@ def load_filenames(data_dir, dataset_type, stack_size):
 
 def load_image_stacks(image_path_stacks):
     """Loads image path stacks into memory"""
+
     num_stacks = len(image_path_stacks)
-    stack_size = len(image_path_stacks[0])
-    rows, cols, channels = get_input_shape(image_path_stacks, stack_size)
-    shape = (num_stacks, rows, cols, channels)
+    rows, cols, stack_size, channels = get_input_shape(image_path_stacks)
+
+    shape = (num_stacks, rows, cols, stack_size, channels)
 
     image_stacks = np.zeros(shape, dtype=np.float32)
 
     paths = set([path for path_stack in image_path_stacks for path in path_stack])
 
     # Load all images into memory, flatten them, and normalize by channel
-    images_flat = np.array([cv2.imread(path).flatten()/255.0 for path in paths], dtype=np.float32)
-    for channel in range(3):
+    images_flat = np.array([cv2.imread(path).flatten() for path in paths], dtype=np.float32)
+    for channel in range(channels):
         start, end = channel * rows * cols, (channel+1) * rows * cols
-        images_flat[:, start:end] = StandardScaler().fit_transform(images_flat[:, start:end])
+        channel_col = images_flat[:, start:end].reshape(-1, 1)
+        channel_col = StandardScaler().fit_transform(channel_col)
+        images_flat[:, start:end] = channel_col.reshape((images_flat.shape[0], rows * cols))
 
-    image_cache = {path: img.reshape((rows, cols, 3)) for path, img in zip(paths, images_flat)}
+    image_cache = {path: img.reshape((rows, cols, channels)) for path, img in zip(paths, images_flat)}
 
     for idx, path_stack in enumerate(image_path_stacks):
-        image_stack = np.dstack(image_cache[path] for path in path_stack)
+        stack_shape = (rows, cols, stack_size, channels)
+        image_stack = np.zeros(stack_shape, dtype=np.float32)
+        for stack_idx, path in enumerate(path_stack):
+            image = image_cache[path]
+            image_stack[:, :, stack_idx, 0] = image[:, :, 0]
+            image_stack[:, :, stack_idx, 1] = image[:, :, 1]
+            image_stack[:, :, stack_idx, 2] = image[:, :, 2]
         image_stacks[idx] = image_stack
 
     return image_stacks
@@ -155,20 +180,18 @@ def load_image_stacks(image_path_stacks):
 
 def build_model(input_shape, num_outputs):
     model = Sequential()
-    model.add(Conv2D(64, (4, 4), strides=(4, 4), padding='same', kernel_regularizer=l2(0.00), input_shape=input_shape))
+
+    model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
-    model.add(Conv2D(32, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
-    model.add(MaxPooling2D())
+    model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
     model.add(Dropout(0.1))
     model.add(BatchNormalization())
-    model.add(Conv2D(16, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
-    model.add(Conv2D(16, (4, 4), strides=(2, 2), padding='same', activation='relu', kernel_regularizer=l2(0.00)))
-    model.add(MaxPooling2D())
+    model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
     model.add(Dropout(0.1))
+    model.add(Flatten())
     model.add(Dense(256, activation='relu'))
     model.add(Dense(128, activation='relu'))
     model.add(LeakyReLU())
-    model.add(Flatten())
     model.add(Dropout(0.3))
     model.add(Dense(num_outputs, activation='linear'))
     return model
@@ -182,13 +205,14 @@ def main(args):
     if args.resume:
         model = load_model(args.model_file)
     else:
-        input_shape = get_input_shape(image_paths, args.stack_size)
+        input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
         model.compile(loss='mean_squared_error', optimizer='adam')
 
     model.summary()
 
     if args.memory == 'high':
+
         image_stacks = load_image_stacks(image_paths)
         images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
 
