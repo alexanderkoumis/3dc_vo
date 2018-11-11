@@ -43,6 +43,20 @@ def dataset_generator(image_paths_all, odom_all, batch_size, memory):
                 odom_batch = []
 
 
+def calc_yaw_velocity(stamp_start, stamp_end, yaw_start, yaw_end):
+
+    time_elapsed = stamp_end - stamp_start
+    yaw_diff = yaw_end - yaw_start
+
+    if yaw_diff > np.pi:
+        yaw_diff -= 2.0 * np.pi
+    if yaw_diff < -np.pi:
+        yaw_diff += 2.0 * np.pi
+
+    yaw_vel = yaw_diff / time_elapsed
+    return yaw_vel
+
+
 def stack_data(image_paths, stamps, odoms, stack_size):
     """
     In format:
@@ -79,25 +93,12 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         for i in range(len(image_paths_seq)-stack_size+1):
 
             image_paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
+            odom_seq[i][2] = calc_yaw_velocity(stamps_seq[i], stamps_seq[i+stack_size-1],
+                                               odom_seq[i][2], odom_seq[i+stack_size-1][2])
 
             image_paths_stacks.append(image_paths_stack)
             stamps_new.append(stamps_seq[i])
-            # time_elapsed = stamps_seq[i+stack_size-1] - stamps_seq[i]
-
-            # theta_start = odom_seq[i][0]
-            # theta_end = odom_seq[i+stack_size-1][0]
-            # theta_diff = theta_end - theta_start
-
-            # if theta_diff > np.pi:
-            #     theta_diff -= 2.0 * np.pi
-
-            # if theta_diff < -np.pi:
-            #     theta_diff += 2.0 * np.pi
-
-            # theta_vel = theta_diff / time_elapsed
-
-            # odoms_new.append(theta_vel)
-            odoms_new.append(odom_seq[i][0])
+            odoms_new.append(odom_seq[i])
 
     return image_paths_stacks, stamps_new, np.array(odoms_new)
 
@@ -207,7 +208,7 @@ def main(args):
     else:
         input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
-        model.compile(loss='mean_squared_error', optimizer='adam')
+        model.compile(loss='mean_absolute_percentage_error', optimizer='adam')
 
     model.summary()
 
