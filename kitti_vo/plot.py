@@ -26,8 +26,8 @@ class Plotter(object):
         self.num += 1
         return self.figure.add_subplot(self.rows, self.cols, self.num)
 
-plotter_a = Plotter(1, 1)
-plotter_b = Plotter(3, 1)
+# plotter_a = Plotter(1, 1)
+# plotter_b = Plotter(3, 1)
 
 
 class ImageLoader(object):
@@ -98,7 +98,9 @@ def plot_trajectory_2d(predictions, ground_truth, stamps):
     positions = get_trajectory_2d(predictions, stamps)
     positions_gt = get_trajectory_2d(ground_truth, stamps)
 
-    ax = plotter_a.add_subplot()
+    plotter = Plotter(1, 1)
+    ax = plotter.add_subplot()
+    # ax = plotter_a.add_subplot()
     min_x, max_x = np.inf, -np.inf
     min_y, max_y = np.inf, -np.inf
     min_min, max_max = np.inf, -np.inf
@@ -118,6 +120,7 @@ def plot_trajectory_2d(predictions, ground_truth, stamps):
 
     ax.set_xlim(min_min, max_max)
     ax.set_ylim(min_min, max_max)
+    return plotter
 
 
 def plot_latlon(image_dir, odom_dir):
@@ -147,12 +150,17 @@ dataset_type = 'raw'
 # kitti_dir = '/home/ubuntu/Development/kitti_vo'
 kitti_dir = '/Users/alexander/Development/kitti_vo'
 base_dir = os.path.join(kitti_dir, 'datasets', 'raw', '160_90')
+# model_file = os.path.join(kitti_dir, 'models', 'model_raw_2.h5')
 model_file = os.path.join(kitti_dir, 'models', 'model_raw.h5')
+model_dir = os.path.join(kitti_dir, 'models', 'model_raw')
+results_dir = os.path.join(kitti_dir, 'results')
 model_pos_y_file = os.path.join(kitti_dir, 'models', 'model_raw_y.h5')
 model_pos_x_file = os.path.join(kitti_dir, 'models', 'model_raw_x.h5')
 model_angle_file = os.path.join(kitti_dir, 'models', 'model_raw_angle.h5')
 
 seq_name = os.listdir(base_dir)[seq_num]
+print(seq_name)
+
 
 image_dir = os.path.join(base_dir, seq_name, 'image_02', 'data')
 odom_dir = os.path.join(base_dir, seq_name, 'oxts', 'data')
@@ -164,51 +172,88 @@ image_paths, stamps, odom = main.stack_data([image_paths], [stamps], [odom], sta
 image_stacks = main.load_image_stacks(image_paths)
 
 odom_gt = np.array(odom)
+odom_gt *= main.ODOM_SCALES
 
-seperate = True
+seperate = False
+multiple_pics = False
 
-if seperate:
 
-    model_pos_y = load_model(model_pos_y_file)
-    model_pos_x = load_model(model_pos_x_file)
-    model_angle = load_model(model_angle_file)
 
-    predictions_pos_y = []
-    predictions_pos_x = []
-    predictions_angle = []
-    for idx, image_stack in enumerate(image_stacks):
-        pred_pos_y = model_pos_y.predict(image_stack[np.newaxis]).ravel()
-        pred_pos_x = model_pos_x.predict(image_stack[np.newaxis]).ravel()
-        pred_angle = model_angle.predict(image_stack[np.newaxis]).ravel()
-        # pred_pos_y = odom_gt[idx, 0].ravel()
-        # pred_pos_x = odom_gt[idx, 1].ravel()
-        # pred_angle = odom_gt[idx, 2].ravel()
-        predictions_pos_y.append(pred_pos_y)
-        predictions_pos_x.append(pred_pos_x)
-        predictions_angle.append(pred_angle)
+if multiple_pics:
 
-    predictions_pos_y = np.array(predictions_pos_y)
-    predictions_pos_x = np.array(predictions_pos_x)
-    predictions_angle = np.array(predictions_angle)
-    
-    predictions = np.hstack((predictions_pos_y, predictions_pos_x, predictions_angle))
+    if seperate:
+
+        pass
+
+    else:
+
+        files = []
+
+        for file in os.listdir(model_dir):
+            name_split = file.split('.')
+
+            if len(name_split) != 5:
+                continue
+
+            file_base = name_split[0]
+            epoch_curr = int(name_split[1].split('-')[0])
+            full_path = os.path.join(model_dir, file)
+            files.append((epoch_curr, full_path))
+
+
+        files.sort()
+
+        for epoch, filename in files:
+            if epoch < 180:
+                continue
+            print('Epoch {}'.format(epoch))
+            model = load_model(filename)
+            predictions = model.predict(image_stacks) * main.ODOM_SCALES
+            plotter = plot_trajectory_2d(predictions, odom_gt, stamps)
+            output_filename = os.path.join(results_dir, '{}.png'.format(epoch))
+            plotter.figure.savefig(output_filename)
+            plt.close(plotter.figure)
+
 
 else:
 
-    model = load_model(model_file)
-    predictions = []
-    for image_stack in image_paths:
-        images = [cv2.imread(path) / 255.0 for path in image_stack]
-        stacked_images = np.dstack(images)[np.newaxis]
-        prediction = model.predict(stacked_images).ravel()
-        predictions.append(prediction)
-    predictions = np.array(predictions)
+    # Just drawing one pictures
+
+    if seperate:
+
+        model_pos_y = load_model(model_pos_y_file)
+        model_pos_x = load_model(model_pos_x_file)
+        model_angle = load_model(model_angle_file)
+
+        predictions_pos_y = []
+        predictions_pos_x = []
+        predictions_angle = []
+        for idx, image_stack in enumerate(image_stacks):
+            pred_pos_y = model_pos_y.predict(image_stack[np.newaxis]).ravel()
+            pred_pos_x = model_pos_x.predict(image_stack[np.newaxis]).ravel()
+            pred_angle = model_angle.predict(image_stack[np.newaxis]).ravel()
+            predictions_pos_y.append(pred_pos_y)
+            predictions_pos_x.append(pred_pos_x)
+            predictions_angle.append(pred_angle)
+
+        predictions_pos_y = np.array(predictions_pos_y)
+        predictions_pos_x = np.array(predictions_pos_x)
+        predictions_angle = np.array(predictions_angle)
+        
+        predictions = np.hstack((predictions_pos_y, predictions_pos_x, predictions_angle))
+
+    else:
+
+        model = load_model(model_file, custom_objects={'weighted_mse': main.weighted_mse})
+        predictions = model.predict(image_stacks)
+
+    predictions *= main.ODOM_SCALES
 
 
-# predictions[:, 2] = savgol_filter(predictions[:, 2], 25, 3)
+    # predictions[:, 2] = savgol_filter(predictions[:, 2], 25, 3)
 
-plot_trajectory_2d(predictions, odom_gt, stamps)
-# plot_latlon(image_dir, odom_dir)
-plot_velocities_2d(predictions, odom_gt)
+    plot_trajectory_2d(predictions, odom_gt, stamps)
+    # plot_latlon(image_dir, odom_dir)
+    plot_velocities_2d(predictions, odom_gt)
 
-plt.show()
+    plt.show()

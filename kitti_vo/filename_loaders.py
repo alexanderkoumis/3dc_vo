@@ -6,7 +6,7 @@ import numpy as np
 import stamp_parser
 
 
-def load_filenames_raw(base_dir, stack_size, odom_idxs=[5, 8, 9]):
+def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 5]):
     """
     Directory structure:
         base_dir/
@@ -94,30 +94,35 @@ def load_filenames_odom(base_dir, stack_size):
                 result.append(pose)
         return result
 
-    def calc_velocities(stamps, poses):
+    def calc_offsets(stamps, poses):
 
-        velocities = []
+        def yaw_from_matrix(M):
+            cy = math.sqrt(M[0, 0]*M[0, 0] + M[1, 0]*M[1, 0])
+            yaw = math.atan2(-M[2, 0],  cy)
+            return yaw
+
+        offsets = []
 
         for i in range(len(stamps)-stack_size+1):
             first_stamp, last_stamp = stamps[i], stamps[i+stack_size-1]
             first_pose, last_pose = poses[i], poses[i+stack_size-1]
             time_elapsed = last_stamp - first_stamp
 
-            transform_world = np.linalg.inv(first_pose).dot(last_pose)
-            R_world, t_world = transform_world[:3, :3], transform_world[:3, 3]
-            t_cam = -R_world.T.dot(t_world)
+            R_first, R_last = first_pose[:3, :3], last_pose[:3, :3]
+            t_first, t_last = first_pose[:3, 3], last_pose[:3, 3]
 
-            # t_world = last_pose[:3, 3] - first_pose[:3, 3]
-            # t_cam = last_pose[:3, :3].T.dot(t_world)
+            R_diff = -R_last.T.dot(R_first)
+            t_diff = -R_first.T.dot(t_last - t_first)
+            yaw_diff = yaw_from_matrix(R_diff.T)
 
-            velocity = (t_cam / time_elapsed)[:2].ravel()
-            velocities.append(velocity)
+            offset = np.array([t_diff[1], t_diff[0], yaw_diff])
+            offsets.append(velocity)
 
-        return velocities
+        return offsets
 
     image_paths_all = []
     stamps_all = []
-    velocity_all = []
+    offsets_all = []
     num_outputs = 2
 
     pose_dir = join(base_dir, 'poses')
@@ -140,13 +145,13 @@ def load_filenames_odom(base_dir, stack_size):
         image_paths = [join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
         poses = get_poses(pose_path)
-        velocities = calc_velocities(stamps, poses)
+        offsets = calc_offsets(stamps, poses)
 
-        assert len(image_paths) == len(stamps) == len(poses) == len(velocities)+stack_size-1, '{} {} {} {}'.format(
-            len(image_paths), len(stamps), len(poses), len(velocities))
+        assert len(image_paths) == len(stamps) == len(poses) == len(offsets)+stack_size-1, '{} {} {} {}'.format(
+            len(image_paths), len(stamps), len(poses), len(offsets))
 
         image_paths_all.append(image_paths[:-stack_size+1])
         stamps_all.append(stamps[:-stack_size+1])
-        velocity_all.append(velocities)
+        offsets_all.append(offsets)
 
-    return image_paths_all, stamps_all, velocity_all, num_outputs
+    return image_paths_all, stamps_all, offsets_all, num_outputs

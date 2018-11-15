@@ -6,6 +6,7 @@ import sys
 
 import cv2
 import numpy as np
+import keras.backend as K
 from keras.callbacks import ModelCheckpoint
 from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D
 from keras.models import Sequential, load_model
@@ -16,6 +17,13 @@ from sklearn.preprocessing import StandardScaler
 
 from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
+
+
+# Forward velocity, leftward velocity, angular velocity
+# Precalculated to scale output during training and testing
+ODOM_IMPORTANCE_SCALES = np.array([0.4, 0.2, 1.0])
+# ODOM_SCALES = np.array([37.47941364, 17.04371557, 1.50419598]) / ODOM_IMPORTANCE_SCALES
+ODOM_SCALES = np.array([37.47941364, 17.04371557, 1.50419598])
 
 
 def dataset_generator(image_paths_all, odom_all, batch_size, memory):
@@ -93,19 +101,25 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         for i in range(len(image_paths_seq)-stack_size+1):
 
             image_paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
-            odom_seq[i][2] = calc_yaw_velocity(stamps_seq[i], stamps_seq[i+stack_size-1],
-                                               odom_seq[i][2], odom_seq[i+stack_size-1][2])
+            # odom_seq[i][2] = calc_yaw_velocity(stamps_seq[i], stamps_seq[i+stack_size-1],
+            #                                    odom_seq[i][2], odom_seq[i+stack_size-1][2])
 
             image_paths_stacks.append(image_paths_stack)
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
-    return image_paths_stacks, stamps_new, np.array(odoms_new)
+    # odoms_new = np.array(odoms_new) / ODOM_SCALES
+    maxs = np.max(odoms_new, axis=0)
+    mins = np.min(odoms_new, axis=0)
+    print(maxs-mins)
+    sys.exit()
+
+    return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 0.5
-    high_angle_thresh = 0.13
-    high_angle_count = sum(abs(odom) > high_angle_thresh for odom in odoms_new)
+    high_low_ratio = 1.5
+    high_angle_thresh = 0.12
+    high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
     image_paths_stacks_new_new = []
@@ -114,7 +128,7 @@ def stack_data(image_paths, stamps, odoms, stack_size):
     idxs = []
 
     for idx, (path_stack, stamp, odom) in enumerate(zip(image_paths_stacks, stamps_new, odoms_new)):
-        if abs(odom) > high_angle_thresh:
+        if abs(odom[2]) > high_angle_thresh:
             image_paths_stacks_new_new.append(path_stack)
             stamps_new_new.append(stamp)
             odoms_new_new.append(odom)
@@ -127,7 +141,11 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         stamps_new_new.append(stamps_new[keep_idx])
         odoms_new_new.append(odoms_new[keep_idx])
 
-    return image_paths_stacks_new_new, stamps_new_new, np.array(odoms_new_new)
+    odoms_new_new = np.array(odoms_new_new)
+
+    odoms_new_new /= ODOM_SCALES
+
+    return image_paths_stacks_new_new, stamps_new_new, odoms_new_new
 
 
 def get_input_shape(image_paths):
@@ -181,7 +199,6 @@ def load_image_stacks(image_path_stacks):
 
 def build_model(input_shape, num_outputs):
     model = Sequential()
-
     model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
     model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
@@ -198,6 +215,10 @@ def build_model(input_shape, num_outputs):
     return model
 
 
+def weighted_mse(y_true, y_pred):
+    return K.mean(ODOM_IMPORTANCE_SCALES*K.square(y_true - y_pred))
+
+
 def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
@@ -208,7 +229,7 @@ def main(args):
     else:
         input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
-        model.compile(loss='mean_absolute_percentage_error', optimizer='adam')
+        model.compile(loss=weighted_mse, optimizer='adam')
 
     model.summary()
 
