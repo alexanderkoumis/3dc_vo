@@ -26,8 +26,8 @@ class Plotter(object):
         self.num += 1
         return self.figure.add_subplot(self.rows, self.cols, self.num)
 
-# plotter_a = Plotter(1, 1)
-# plotter_b = Plotter(3, 1)
+plotter_a = Plotter(1, 1)
+plotter_b = Plotter(3, 1)
 
 
 class ImageLoader(object):
@@ -70,11 +70,17 @@ def get_trajectory_2d(odoms, stamps):
 
     for i in range(min(len(stamps)-1, len(odoms)-1)):
 
+        if i + 5 - 1 >= len(stamps):
+            print('Brownie fudge')
+            break
+
         duration = stamps[i+1] - stamps[i]
-        odom = odoms[i]
-        vel_x, vel_y, vel_theta = odom[0], odom[1], odom[2]
+        duration_total = stamps[i+5-1] - stamps[i]
+
+        vel_y, vel_x, vel_theta = odoms[i]
 
         trans_local = np.array([vel_x * duration, vel_y * duration])
+        theta_local = vel_theta * duration
 
         rot = np.array([
             [np.sin(theta_global),  np.cos(theta_global)],
@@ -85,10 +91,11 @@ def get_trajectory_2d(odoms, stamps):
 
         curr_pos += trans_global
 
-        theta_local = vel_theta * duration
         theta_global = (theta_global + theta_local) % (2 * np.pi)
 
         positions.append(deepcopy(curr_pos))
+
+
 
     return positions
 
@@ -98,9 +105,7 @@ def plot_trajectory_2d(predictions, ground_truth, stamps):
     positions = get_trajectory_2d(predictions, stamps)
     positions_gt = get_trajectory_2d(ground_truth, stamps)
 
-    plotter = Plotter(1, 1)
-    ax = plotter.add_subplot()
-    # ax = plotter_a.add_subplot()
+    ax = plotter_a.add_subplot()
     min_x, max_x = np.inf, -np.inf
     min_y, max_y = np.inf, -np.inf
     min_min, max_max = np.inf, -np.inf
@@ -120,7 +125,7 @@ def plot_trajectory_2d(predictions, ground_truth, stamps):
 
     ax.set_xlim(min_min, max_max)
     ax.set_ylim(min_min, max_max)
-    return plotter
+
 
 
 def plot_latlon(image_dir, odom_dir):
@@ -142,23 +147,19 @@ def plot_latlon(image_dir, odom_dir):
     ax.set_ylim(min(y), max(y))
 
 
-seq_num = 7
+seq_num = 8
 stack_size = 5
 
-dataset_type = 'raw'
+dataset_type = 'odom'
 
-# kitti_dir = '/home/ubuntu/Development/kitti_vo'
-kitti_dir = '/Users/alexander/Development/kitti_vo'
-base_dir = os.path.join(kitti_dir, 'datasets', 'raw', '160_90')
-# model_file = os.path.join(kitti_dir, 'models', 'model_raw_2.h5')
-model_file = os.path.join(kitti_dir, 'models', 'model_raw.h5')
-model_dir = os.path.join(kitti_dir, 'models', 'model_raw')
+kitti_dir = '/home/ubuntu/Development/kitti_vo'
+# kitti_dir = '/Users/alexander/Development/kitti_vo'
+base_dir = os.path.join(kitti_dir, 'datasets', 'odom', '160_90')
+sequences_dir = os.path.join(base_dir, 'sequences')
+model_file = os.path.join(kitti_dir, 'models', 'model_odom.h5')
 results_dir = os.path.join(kitti_dir, 'results')
-model_pos_y_file = os.path.join(kitti_dir, 'models', 'model_raw_y.h5')
-model_pos_x_file = os.path.join(kitti_dir, 'models', 'model_raw_x.h5')
-model_angle_file = os.path.join(kitti_dir, 'models', 'model_raw_angle.h5')
 
-seq_name = os.listdir(base_dir)[seq_num]
+seq_name = os.listdir(sequences_dir)[seq_num]
 print(seq_name)
 
 
@@ -167,7 +168,7 @@ odom_dir = os.path.join(base_dir, seq_name, 'oxts', 'data')
 
 image_paths, stamps, odom, num_outputs = main.load_filenames(base_dir, dataset_type, stack_size)
 image_paths, stamps, odom = image_paths[seq_num], stamps[seq_num], odom[seq_num]
-image_paths, stamps, odom = main.stack_data([image_paths], [stamps], [odom], stack_size)
+image_paths, stamps, odom = main.stack_data([image_paths], [stamps], [odom], stack_size, test_phase=True)
 
 image_stacks = main.load_image_stacks(image_paths)
 
@@ -178,82 +179,15 @@ seperate = False
 multiple_pics = False
 
 
-
-if multiple_pics:
-
-    if seperate:
-
-        pass
-
-    else:
-
-        files = []
-
-        for file in os.listdir(model_dir):
-            name_split = file.split('.')
-
-            if len(name_split) != 5:
-                continue
-
-            file_base = name_split[0]
-            epoch_curr = int(name_split[1].split('-')[0])
-            full_path = os.path.join(model_dir, file)
-            files.append((epoch_curr, full_path))
+model = load_model(model_file, custom_objects={'weighted_mse': main.weighted_mse})
+predictions = model.predict(image_stacks)
+predictions *= main.ODOM_SCALES
 
 
-        files.sort()
+# predictions[:, 2] = savgol_filter(predictions[:, 2], 25, 3)
 
-        for epoch, filename in files:
-            if epoch < 180:
-                continue
-            print('Epoch {}'.format(epoch))
-            model = load_model(filename)
-            predictions = model.predict(image_stacks) * main.ODOM_SCALES
-            plotter = plot_trajectory_2d(predictions, odom_gt, stamps)
-            output_filename = os.path.join(results_dir, '{}.png'.format(epoch))
-            plotter.figure.savefig(output_filename)
-            plt.close(plotter.figure)
+plot_trajectory_2d(predictions, odom_gt, stamps)
+# plot_latlon(image_dir, odom_dir)
+plot_velocities_2d(predictions, odom_gt)
 
-
-else:
-
-    # Just drawing one pictures
-
-    if seperate:
-
-        model_pos_y = load_model(model_pos_y_file)
-        model_pos_x = load_model(model_pos_x_file)
-        model_angle = load_model(model_angle_file)
-
-        predictions_pos_y = []
-        predictions_pos_x = []
-        predictions_angle = []
-        for idx, image_stack in enumerate(image_stacks):
-            pred_pos_y = model_pos_y.predict(image_stack[np.newaxis]).ravel()
-            pred_pos_x = model_pos_x.predict(image_stack[np.newaxis]).ravel()
-            pred_angle = model_angle.predict(image_stack[np.newaxis]).ravel()
-            predictions_pos_y.append(pred_pos_y)
-            predictions_pos_x.append(pred_pos_x)
-            predictions_angle.append(pred_angle)
-
-        predictions_pos_y = np.array(predictions_pos_y)
-        predictions_pos_x = np.array(predictions_pos_x)
-        predictions_angle = np.array(predictions_angle)
-        
-        predictions = np.hstack((predictions_pos_y, predictions_pos_x, predictions_angle))
-
-    else:
-
-        model = load_model(model_file, custom_objects={'weighted_mse': main.weighted_mse})
-        predictions = model.predict(image_stacks)
-
-    predictions *= main.ODOM_SCALES
-
-
-    # predictions[:, 2] = savgol_filter(predictions[:, 2], 25, 3)
-
-    plot_trajectory_2d(predictions, odom_gt, stamps)
-    # plot_latlon(image_dir, odom_dir)
-    plot_velocities_2d(predictions, odom_gt)
-
-    plt.show()
+plt.show()

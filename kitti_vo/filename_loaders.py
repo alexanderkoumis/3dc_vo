@@ -1,3 +1,4 @@
+import math
 import os
 from os.path import join
 
@@ -94,14 +95,14 @@ def load_filenames_odom(base_dir, stack_size):
                 result.append(pose)
         return result
 
-    def calc_offsets(stamps, poses):
+    def calc_velocities(stamps, poses):
 
         def yaw_from_matrix(M):
             cy = math.sqrt(M[0, 0]*M[0, 0] + M[1, 0]*M[1, 0])
             yaw = math.atan2(-M[2, 0],  cy)
             return yaw
 
-        offsets = []
+        velocities = []
 
         for i in range(len(stamps)-stack_size+1):
             first_stamp, last_stamp = stamps[i], stamps[i+stack_size-1]
@@ -113,17 +114,19 @@ def load_filenames_odom(base_dir, stack_size):
 
             R_diff = -R_last.T.dot(R_first)
             t_diff = -R_first.T.dot(t_last - t_first)
+            x_diff, z_diff, y_diff = t_diff
+
             yaw_diff = yaw_from_matrix(R_diff.T)
 
-            offset = np.array([t_diff[1], t_diff[0], yaw_diff])
-            offsets.append(velocity)
+            velocity = np.array([y_diff, x_diff, yaw_diff]) / time_elapsed
+            velocities.append(velocity)
 
-        return offsets
+        return velocities
 
     image_paths_all = []
     stamps_all = []
-    offsets_all = []
-    num_outputs = 2
+    velocities_all = []
+    num_outputs = 3
 
     pose_dir = join(base_dir, 'poses')
     sequences_dir = join(base_dir, 'sequences')
@@ -145,13 +148,13 @@ def load_filenames_odom(base_dir, stack_size):
         image_paths = [join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
         poses = get_poses(pose_path)
-        offsets = calc_offsets(stamps, poses)
+        velocities = calc_velocities(stamps, poses)
 
-        assert len(image_paths) == len(stamps) == len(poses) == len(offsets)+stack_size-1, '{} {} {} {}'.format(
-            len(image_paths), len(stamps), len(poses), len(offsets))
+        assert len(image_paths) == len(stamps) == len(poses) == len(velocities)+stack_size-1, '{} {} {} {}'.format(
+            len(image_paths), len(stamps), len(poses), len(velocities))
 
         image_paths_all.append(image_paths[:-stack_size+1])
         stamps_all.append(stamps[:-stack_size+1])
-        offsets_all.append(offsets)
+        velocities_all.append(velocities)
 
-    return image_paths_all, stamps_all, offsets_all, num_outputs
+    return image_paths_all, stamps_all, velocities_all, num_outputs

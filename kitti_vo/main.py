@@ -21,12 +21,12 @@ from image_loader import ImageLoader
 
 # Forward velocity, leftward velocity, angular velocity
 # Precalculated to scale output during training and testing
-ODOM_IMPORTANCE_SCALES = np.array([0.4, 0.2, 1.0])
-# ODOM_SCALES = np.array([37.47941364, 17.04371557, 1.50419598]) / ODOM_IMPORTANCE_SCALES
-ODOM_SCALES = np.array([37.47941364, 17.04371557, 1.50419598])
+ODOM_IMPORTANCE_SCALES = np.array([1.0, 1.0, 1.0])
+ODOM_SCALES = np.array([1.3127108, 2.36517883, 0.62509463])
 
 
-def dataset_generator(image_paths_all, odom_all, batch_size, memory):
+
+def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
 
     image_loader = ImageLoader(memory)
 
@@ -38,11 +38,32 @@ def dataset_generator(image_paths_all, odom_all, batch_size, memory):
         stacked_images_batch = []
         odom_batch = []
 
-        for image_paths, odom in input_target_list:
+        for paths, odom in input_target_list:
 
-            images = [image_loader.load_image(path)/255.0 for path in image_paths]
-            stacked_images = np.dstack(images)
-            stacked_images_batch.append(stacked_images)
+            images = [image_loader.load_image(path).astype(np.float32) for path in paths]
+
+            for idx, image in enumerate(images):
+
+                for channel, scaler in enumerate(rgb_scalers):
+
+                    image_channel = image[:, :, channel]
+                    image_channel_flat = image_channel.reshape(-1, 1)
+                    image_channel_flat = scaler.transform(image_channel_flat)
+                    image_channel = image_channel_flat.reshape(image[:, :, channel].shape)
+                    images[idx][:, :, channel] = image_channel
+
+            rows, cols, channels = images[0].shape
+            stack_size = len(paths)
+
+            stack_shape = (rows, cols, stack_size, channels)
+            image_stack = np.zeros(stack_shape, dtype=np.float32)
+
+            for stack_idx, image in enumerate(images):
+                image_stack[:, :, stack_idx, 0] = image[:, :, 0]
+                image_stack[:, :, stack_idx, 1] = image[:, :, 1]
+                image_stack[:, :, stack_idx, 2] = image[:, :, 2]
+
+            stacked_images_batch.append(image_stack)
             odom_batch.append(odom)
 
             if len(stacked_images_batch) == batch_size:
@@ -65,7 +86,7 @@ def calc_yaw_velocity(stamp_start, stamp_end, yaw_start, yaw_end):
     return yaw_vel
 
 
-def stack_data(image_paths, stamps, odoms, stack_size):
+def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     """
     In format:
         image_paths: [
@@ -101,24 +122,18 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         for i in range(len(image_paths_seq)-stack_size+1):
 
             image_paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
-            # odom_seq[i][2] = calc_yaw_velocity(stamps_seq[i], stamps_seq[i+stack_size-1],
-            #                                    odom_seq[i][2], odom_seq[i+stack_size-1][2])
-
             image_paths_stacks.append(image_paths_stack)
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
-    # odoms_new = np.array(odoms_new) / ODOM_SCALES
-    maxs = np.max(odoms_new, axis=0)
-    mins = np.min(odoms_new, axis=0)
-    print(maxs-mins)
-    sys.exit()
-
-    return image_paths_stacks, stamps_new, odoms_new
+    if test_phase:
+        odoms_new /= ODOM_SCALES
+        return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
     high_low_ratio = 1.5
     high_angle_thresh = 0.12
+    # high_angle_thresh = 0.03
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -142,7 +157,6 @@ def stack_data(image_paths, stamps, odoms, stack_size):
         odoms_new_new.append(odoms_new[keep_idx])
 
     odoms_new_new = np.array(odoms_new_new)
-
     odoms_new_new /= ODOM_SCALES
 
     return image_paths_stacks_new_new, stamps_new_new, odoms_new_new
@@ -219,17 +233,36 @@ def weighted_mse(y_true, y_pred):
     return K.mean(ODOM_IMPORTANCE_SCALES*K.square(y_true - y_pred))
 
 
+def get_rgb_scalers(image_path_stacks):
+
+    num_stacks = len(image_path_stacks)
+    rows, cols, stack_size, channels = get_input_shape(image_path_stacks)
+
+    paths = set([path for path_stack in image_path_stacks for path in path_stack])
+    scalers = [StandardScaler() for _ in range(channels)]
+
+    # Load all images into memory, flatten them, and normalize by channel
+    images = np.array([cv2.imread(path).flatten() for path in paths], dtype=np.float32)
+    for channel, scaler in enumerate(scalers):
+        start, end = channel * rows * cols, (channel+1) * rows * cols
+        channel_col = images_flat[:, start:end].reshape(-1, 1)
+        scaler.fit(channel_col)
+
+    return scalers
+
 def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
 
     if args.resume:
+        # model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
         model = load_model(args.model_file)
     else:
         input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
-        model.compile(loss=weighted_mse, optimizer='adam')
+        # model.compile(loss=weighted_mse, optimizer='adam')
+        model.compile(loss='mse', optimizer='adam')
 
     model.summary()
 
@@ -248,12 +281,14 @@ def main(args):
         num_batches = len(image_paths) / args.batch_size
         paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
 
-        model.fit_generator(dataset_generator(paths_train, odom_train, args.batch_size, args.memory),
+        scalers = get_rgb_scalers(paths_test)
+
+        model.fit_generator(dataset_generator(paths_train, odom_train, scalers, args.batch_size, args.memory),
             epochs=args.epochs,
             steps_per_epoch=int(0.75*num_batches),
             validation_steps=int(0.25*num_batches),
             verbose=1,
-            validation_data=dataset_generator(paths_test, odom_test, args.batch_size, args.memory),
+            validation_data=dataset_generator(paths_test, odom_test, scalers, args.batch_size, args.memory),
             callbacks=[ModelCheckpoint(args.model_file)])
 
     print('Saving model to {}'.format(args.model_file))
