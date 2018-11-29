@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import random
 import sys
 
@@ -17,12 +18,18 @@ from sklearn.preprocessing import StandardScaler
 
 from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
+from recent_model_renamer import RecentModelRenamer
 
 
 # Forward velocity, leftward velocity, angular velocity
 # Precalculated to scale output during training and testing
-ODOM_IMPORTANCE_SCALES = np.array([1.0, 1.0, 1.0])
-ODOM_SCALES = np.array([1.3127108, 2.36517883, 0.62509463])
+ODOM_IMPORTANCE_SCALES = np.array([0.5, 0.2, 1.0])
+
+# # Velocities
+# ODOM_SCALES = np.array([26.4518183, 5.70262262, 1.50662341])
+
+# Offsets
+ODOM_SCALES = np.array([10.97064094, 2.36517883, 0.62509463])
 
 
 
@@ -132,8 +139,8 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     # Break this out into seperate function, only for angular velocity
     high_low_ratio = 1.5
-    high_angle_thresh = 0.12
-    # high_angle_thresh = 0.03
+    # high_angle_thresh = 0.12
+    high_angle_thresh = 0.06
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -208,6 +215,8 @@ def load_image_stacks(image_path_stacks):
             image_stack[:, :, stack_idx, 2] = image[:, :, 2]
         image_stacks[idx] = image_stack
 
+    print(image_stacks.shape)
+
     return image_stacks
 
 
@@ -250,21 +259,32 @@ def get_rgb_scalers(image_path_stacks):
 
     return scalers
 
+
+def get_model_tpl(model_file_full):
+    model_file_full = os.path.abspath(model_file_full)
+    model_file = model_file_full.split('/')[-1]
+    directory = '/'.join(model_file_full.split('/')[:-1])
+    base, ext = model_file.split('.')
+    model_tpl = base + '.{epoch:04d}-{loss:.6f}-{val_loss:.6f}.' + ext
+    return os.path.join(directory, model_tpl)
+
+
 def main(args):
 
     image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
     image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
+    model_file_tpl = get_model_tpl(args.model_file)
 
     if args.resume:
-        # model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
-        model = load_model(args.model_file)
+        model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
     else:
         input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
-        # model.compile(loss=weighted_mse, optimizer='adam')
-        model.compile(loss='mse', optimizer='adam')
+        model.compile(loss=weighted_mse, optimizer='adam')
+        # model.compile(loss='mse', optimizer='adam')
 
     model.summary()
+
 
     if args.memory == 'high':
 
@@ -276,7 +296,7 @@ def main(args):
             batch_size=args.batch_size,
             verbose=1,
             validation_data=(images_test, odom_test),
-            callbacks=[ModelCheckpoint(args.model_file)])
+            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
     else:
         num_batches = len(image_paths) / args.batch_size
         paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
@@ -289,7 +309,7 @@ def main(args):
             validation_steps=int(0.25*num_batches),
             verbose=1,
             validation_data=dataset_generator(paths_test, odom_test, scalers, args.batch_size, args.memory),
-            callbacks=[ModelCheckpoint(args.model_file)])
+            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
