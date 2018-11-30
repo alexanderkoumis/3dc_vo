@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import random
 import sys
 
@@ -18,7 +17,6 @@ from sklearn.preprocessing import StandardScaler
 
 from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
-from recent_model_renamer import RecentModelRenamer
 
 
 # Forward velocity, leftward velocity, angular velocity
@@ -31,7 +29,8 @@ ODOM_IMPORTANCE_SCALES = np.array([0.5, 0.2, 1.0])
 # Offsets
 ODOM_SCALES = np.array([10.97064094, 2.36517883, 0.62509463])
 
-
+TRAIN_SEQUENCES = ['00', '02', '08', '09']
+TEST_SEQUENCES = ['01', '03', '04', '05', '06', '10']
 
 def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
 
@@ -139,8 +138,8 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     # Break this out into seperate function, only for angular velocity
     high_low_ratio = 1.5
-    # high_angle_thresh = 0.12
-    high_angle_thresh = 0.06
+    high_angle_thresh = 0.12
+    # high_angle_thresh = 0.03
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -175,12 +174,12 @@ def get_input_shape(image_paths):
     return rows, cols, stack_size, channels
 
 
-def load_filenames(data_dir, dataset_type, stack_size):
+def load_filenames(data_dir, dataset_type, stack_size, sequences=None):
     loader = {
         'raw': load_filenames_raw,
         'odom': load_filenames_odom
     }
-    return loader[dataset_type](data_dir, stack_size)
+    return loader[dataset_type](data_dir, stack_size, sequences)
 
 
 def load_image_stacks(image_path_stacks):
@@ -214,8 +213,6 @@ def load_image_stacks(image_path_stacks):
             image_stack[:, :, stack_idx, 1] = image[:, :, 1]
             image_stack[:, :, stack_idx, 2] = image[:, :, 2]
         image_stacks[idx] = image_stack
-
-    print(image_stacks.shape)
 
     return image_stacks
 
@@ -260,56 +257,56 @@ def get_rgb_scalers(image_path_stacks):
     return scalers
 
 
-def get_model_tpl(model_file_full):
-    model_file_full = os.path.abspath(model_file_full)
-    model_file = model_file_full.split('/')[-1]
-    directory = '/'.join(model_file_full.split('/')[:-1])
-    base, ext = model_file.split('.')
-    model_tpl = base + '.{epoch:04d}-{loss:.6f}-{val_loss:.6f}.' + ext
-    return os.path.join(directory, model_tpl)
+def load_data(data_dir, dataset_type, stack_size, memory_type):
+
+    images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
+                                                                   stack_size, TRAIN_SEQUENCES)
+    images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
+
+    images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
+                                                                 stack_size, TEST_SEQUENCES)
+    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_train, stack_size)
+
+    input_shape = get_input_shape(images_train)
+
+    if memory_type == 'high':
+        images_train = load_image_stacks(images_train)
+        images_test = load_image_stacks(images_test)
+
+    return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
 
 
 def main(args):
 
-    image_paths, stamps, odom, num_outputs = load_filenames(args.data_dir, args.dataset_type, args.stack_size)
-    image_paths, stamps, odom = stack_data(image_paths, stamps, odom, args.stack_size)
-    model_file_tpl = get_model_tpl(args.model_file)
+    images_train, odom_train, images_test, odom_test, input_shape, num_outputs = load_data(
+        args.data_dir, args.dataset_type, args.stack_size, args.memory)
 
     if args.resume:
         model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
     else:
-        input_shape = get_input_shape(image_paths)
         model = build_model(input_shape, num_outputs)
         model.compile(loss=weighted_mse, optimizer='adam')
-        # model.compile(loss='mse', optimizer='adam')
 
     model.summary()
 
-
     if args.memory == 'high':
-
-        image_stacks = load_image_stacks(image_paths)
-        images_train, images_test, odom_train, odom_test = train_test_split(image_stacks, odom)
 
         model.fit(images_train, odom_train,
             epochs=args.epochs,
             batch_size=args.batch_size,
             verbose=1,
             validation_data=(images_test, odom_test),
-            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
+            callbacks=[ModelCheckpoint(args.model_file)])
     else:
-        num_batches = len(image_paths) / args.batch_size
-        paths_train, paths_test, odom_train, odom_test = train_test_split(image_paths, odom)
 
-        scalers = get_rgb_scalers(paths_test)
-
-        model.fit_generator(dataset_generator(paths_train, odom_train, scalers, args.batch_size, args.memory),
+        scalers = get_rgb_scalers(images_test)
+        model.fit_generator(dataset_generator(images_train, odom_train, scalers, args.batch_size, args.memory),
             epochs=args.epochs,
-            steps_per_epoch=int(0.75*num_batches),
-            validation_steps=int(0.25*num_batches),
+            steps_per_epoch=int(len(images_train)/args.batch_size),
+            validation_steps=int(len(images_test)/args.batch_size),
             verbose=1,
-            validation_data=dataset_generator(paths_test, odom_test, scalers, args.batch_size, args.memory),
-            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
+            validation_data=dataset_generator(images_test, odom_test, scalers, args.batch_size, args.memory),
+            callbacks=[ModelCheckpoint(args.model_file)])
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
