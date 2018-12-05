@@ -76,7 +76,7 @@ def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 5], sequences=None
     return image_paths_all, stamps_all, odom_all, num_outputs
 
 
-def poses_to_velocities(stamps, poses, stack_size):
+def poses_to_offsets(stamps, poses, stack_size):
 
     """Only to be used with load_filenames_odom"""
 
@@ -86,7 +86,7 @@ def poses_to_velocities(stamps, poses, stack_size):
         yaw = math.atan2(-M[2, 0],  cy)
         return yaw
 
-    velocities = []
+    offsets = []
 
     for i in range(len(stamps)-stack_size+1):
 
@@ -106,11 +106,10 @@ def poses_to_velocities(stamps, poses, stack_size):
 
         yaw_diff = yaw_from_matrix(R_diff.T)
 
-        # velocity = np.array([y_diff, x_diff, yaw_diff]) / time_elapsed
-        velocity = np.array([y_diff, x_diff, yaw_diff])
-        velocities.append(velocity)
+        offset = np.array([y_diff, x_diff, yaw_diff])
+        offsets.append(offset)
 
-    return velocities
+    return offsets
 
 
 def load_filenames_odom(base_dir, stack_size, sequences=None):
@@ -163,13 +162,13 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
         image_paths = [join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
         poses = get_poses(pose_path)
-        velocities = poses_to_velocities(stamps, poses, stack_size)
+        offsets = poses_to_offsets(stamps, poses, stack_size)
 
-        assert len(image_paths) == len(stamps) == len(poses) == len(velocities)+stack_size-1, '{} {} {} {}'.format(
-            len(image_paths), len(stamps), len(poses), len(velocities))
+        assert len(image_paths) == len(stamps) == len(poses) == len(offsets)+stack_size-1, '{} {} {} {}'.format(
+            len(image_paths), len(stamps), len(poses), len(offsets))
 
         image_paths_all.append(image_paths[:-stack_size+1])
         stamps_all.append(stamps[:-stack_size+1])
-        velocities_all.append(velocities)
+        offsets_all.append(offsets)
 
-    return image_paths_all, stamps_all, velocities_all, num_outputs
+    return image_paths_all, stamps_all, offsets_all, num_outputs

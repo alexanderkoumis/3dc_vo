@@ -90,10 +90,6 @@ def main(args):
         output_file = os.path.join(args.output_dir, '{}.txt'.format(sequence))
         write_poses(output_file, poses)
 
-        # vels = filename_loaders.poses_to_velocities(stamps_, poses, args.stack_size)
-        # plot.plot_trajectory_2d(predictions, vels, stamps, args.stack_size)
-        # plt.show()
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
