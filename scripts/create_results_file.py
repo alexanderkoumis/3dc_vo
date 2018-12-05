@@ -3,16 +3,24 @@
 import argparse
 import os
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from keras.models import load_model
 
 import filename_loaders
-import kitti_vo
-import plot
+import train
+# import plot
 
 
-SEQUENCES = ['00', '01', '02', '03', '04', '05', '06', '07', '09', '10', '11']
+def averaged_prediction(predictions, stack_size, idx):
+    pred = 0.0
+    for j in range(stack_size):
+        for k in range(j, stack_size):
+            pred += predictions[idx+j] / (stack_size * (k+1))
+    return pred
+
 
 def calc_poses(predictions, stamps, stack_size):
 
@@ -27,6 +35,7 @@ def calc_poses(predictions, stamps, stack_size):
         duration = stamps[i+1] - stamps[i]
         duration_total = stamps[i+stack_size-1] - stamps[i]
 
+        prediction = averaged_prediction(predictions, stack_size, i)
         vel_y, vel_x, vel_yaw = prediction / duration_total
 
         trans_local = np.array([vel_y * duration, vel_x * duration])
@@ -60,29 +69,29 @@ def write_poses(output_file, poses):
             fd.write(pose_line)
 
 
-def main(model_file, stack_size, input_dir, output_dir):
+def main(args):
 
-    model = load_model(model_file, custom_objects={'weighted_mse': kitti_vo.weighted_mse})
+    model = load_model(args.model_file, custom_objects={'weighted_mse': train.weighted_mse})
 
-    image_paths, stamps, odom, num_outputs = kitti_vo.load_filenames(input_dir, 'odom', stack_size, sequences=SEQUENCES)
+    image_paths, stamps, odom, num_outputs = train.load_filenames(args.input_dir, 'odom', args.stack_size, sequences=train.TEST_SEQUENCES)
 
-    for sequence, (image_paths_, stamps_, odom_) in zip(SEQUENCES, zip(image_paths, stamps, odom)):
+    for sequence, (image_paths_, stamps_, odom_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, odom)):
 
         print('Sequence: {}'.format(sequence))
 
-        image_paths, stamps, odom = kitti_vo.stack_data([image_paths_], [stamps_], [odom_], stack_size, test_phase=True)
-        image_stacks = kitti_vo.load_image_stacks(image_paths)
+        image_paths, stamps, odom = train.stack_data([image_paths_], [stamps_], [odom_], args.stack_size, test_phase=True)
+        image_stacks = train.load_image_stacks(image_paths)
 
         predictions = model.predict(image_stacks)
-        predictions *= kitti_vo.ODOM_SCALES
+        predictions *= train.ODOM_SCALES
 
-        poses = calc_poses(predictions, stamps_, stack_size)
+        poses = calc_poses(predictions, stamps_, args.stack_size)
 
-        output_file = os.path.join(output_dir, '{}.txt'.format(sequence))
+        output_file = os.path.join(args.output_dir, '{}.txt'.format(sequence))
         write_poses(output_file, poses)
 
-        # vels = filename_loaders.poses_to_velocities(stamps_, poses, stack_size)
-        # plot.plot_trajectory_2d(predictions, vels, stamps, stack_size)
+        # vels = filename_loaders.poses_to_velocities(stamps_, poses, args.stack_size)
+        # plot.plot_trajectory_2d(predictions, vels, stamps, args.stack_size)
         # plt.show()
 
 
@@ -96,5 +105,6 @@ def parse_args():
     return args
 
 if __name__ == '__main__':
+
     args = parse_args()
-    main(args.model_file, args.stack_size, args.input_dir, args.output_dir)
+    main(args)

@@ -81,7 +81,8 @@ def poses_to_velocities(stamps, poses, stack_size):
     """Only to be used with load_filenames_odom"""
 
     def yaw_from_matrix(M):
-        cy = math.sqrt(M[0, 0]*M[0, 0] + M[1, 0]*M[1, 0])
+        # cy = math.sqrt(M[0, 0]**2 + M[1, 0]**2)
+        cy = math.sqrt(M[2, 1]**2 + M[2, 2]**2)
         yaw = math.atan2(-M[2, 0],  cy)
         return yaw
 

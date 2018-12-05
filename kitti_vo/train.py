@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import random
 import sys
 
@@ -17,6 +18,7 @@ from sklearn.preprocessing import StandardScaler
 
 from filename_loaders import load_filenames_raw, load_filenames_odom
 from image_loader import ImageLoader
+from recent_model_renamer import RecentModelRenamer
 
 
 # Forward velocity, leftward velocity, angular velocity
@@ -137,7 +139,7 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
         return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 1.5
+    high_low_ratio = 3.0
     high_angle_thresh = 0.12
     # high_angle_thresh = 0.03
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
@@ -222,15 +224,13 @@ def build_model(input_shape, num_outputs):
     model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
     model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
-    model.add(Dropout(0.1))
     model.add(BatchNormalization())
     model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
-    model.add(Dropout(0.1))
     model.add(Flatten())
-    model.add(Dense(256, activation='relu'))
     model.add(Dense(128, activation='relu'))
+    model.add(Dense(64, activation='relu'))
     model.add(LeakyReLU())
-    model.add(Dropout(0.3))
+    model.add(Dropout(0.4))
     model.add(Dense(num_outputs, activation='linear'))
     return model
 
@@ -265,7 +265,7 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
 
     images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
                                                                  stack_size, TEST_SEQUENCES)
-    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_train, stack_size)
+    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size)
 
     input_shape = get_input_shape(images_train)
 
@@ -276,8 +276,18 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
     return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
 
 
+def get_model_tpl(model_file_full):
+    model_file_full = os.path.abspath(model_file_full)
+    model_file = model_file_full.split('/')[-1]
+    directory = '/'.join(model_file_full.split('/')[:-1])
+    base, ext = model_file.split('.')
+    model_tpl = base + '.{epoch:04d}-{loss:.6f}-{val_loss:.6f}.' + ext
+    return os.path.join(directory, model_tpl)
+
+
 def main(args):
 
+    model_file_tpl = get_model_tpl(args.model_file)
     images_train, odom_train, images_test, odom_test, input_shape, num_outputs = load_data(
         args.data_dir, args.dataset_type, args.stack_size, args.memory)
 
@@ -296,7 +306,7 @@ def main(args):
             batch_size=args.batch_size,
             verbose=1,
             validation_data=(images_test, odom_test),
-            callbacks=[ModelCheckpoint(args.model_file)])
+            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
     else:
 
         scalers = get_rgb_scalers(images_test)
@@ -306,7 +316,7 @@ def main(args):
             validation_steps=int(len(images_test)/args.batch_size),
             verbose=1,
             validation_data=dataset_generator(images_test, odom_test, scalers, args.batch_size, args.memory),
-            callbacks=[ModelCheckpoint(args.model_file)])
+            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
