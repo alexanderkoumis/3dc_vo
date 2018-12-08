@@ -81,8 +81,7 @@ def poses_to_offsets(stamps, poses, stack_size):
     """Only to be used with load_filenames_odom"""
 
     def yaw_from_matrix(M):
-        # cy = math.sqrt(M[0, 0]**2 + M[1, 0]**2)
-        cy = math.sqrt(M[2, 1]**2 + M[2, 2]**2)
+        cy = math.sqrt(M[0, 0]**2 + M[1, 0]**2)
         yaw = math.atan2(-M[2, 0],  cy)
         return yaw
 
@@ -133,7 +132,7 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
 
     image_paths_all = []
     stamps_all = []
-    velocities_all = []
+    offsets_all = []
     num_outputs = 3
 
     pose_dir = join(base_dir, 'poses')

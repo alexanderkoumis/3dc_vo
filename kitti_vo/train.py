@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import random
 import sys
@@ -139,9 +140,8 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
         return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 3.0
-    high_angle_thresh = 0.12
-    # high_angle_thresh = 0.03
+    high_low_ratio = 1.5
+    high_angle_thresh = 0.10
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -265,7 +265,7 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
 
     images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
                                                                  stack_size, TEST_SEQUENCES)
-    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size)
+    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size, test_phase=True)
 
     input_shape = get_input_shape(images_train)
 
@@ -285,6 +285,12 @@ def get_model_tpl(model_file_full):
     return os.path.join(directory, model_tpl)
 
 
+def save_history_file(history_file, history_dict):
+    with open(history_file, 'w+') as fd:
+        history_str = json.dumps(history_dict)
+        fd.write(history_str)
+
+
 def main(args):
 
     model_file_tpl = get_model_tpl(args.model_file)
@@ -296,12 +302,13 @@ def main(args):
     else:
         model = build_model(input_shape, num_outputs)
         model.compile(loss=weighted_mse, optimizer='adam')
+        # model.compile(loss=weighted_mse, optimizer=SGD(lr=0.05, decay=1e-6, momentum=0.9, nesterov=True))
 
     model.summary()
 
     if args.memory == 'high':
 
-        model.fit(images_train, odom_train,
+        history = model.fit(images_train, odom_train,
             epochs=args.epochs,
             batch_size=args.batch_size,
             verbose=1,
@@ -310,7 +317,7 @@ def main(args):
     else:
 
         scalers = get_rgb_scalers(images_test)
-        model.fit_generator(dataset_generator(images_train, odom_train, scalers, args.batch_size, args.memory),
+        history = model.fit_generator(dataset_generator(images_train, odom_train, scalers, args.batch_size, args.memory),
             epochs=args.epochs,
             steps_per_epoch=int(len(images_train)/args.batch_size),
             validation_steps=int(len(images_test)/args.batch_size),
@@ -321,13 +328,17 @@ def main(args):
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
 
+    print('Saving history to {}'.format(args.history_file))
+    save_history_file(args.history_file, history.history)
+
 
 def parse_args():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', help='Dataset directory')
-    parser.add_argument('model_file', help='Model file')
     parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
+    parser.add_argument('model_file', help='Model file')
+    parser.add_argument('history_file', help='Output history file')
     parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
