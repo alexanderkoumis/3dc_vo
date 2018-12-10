@@ -52,6 +52,7 @@ def get_model_file_epoch(model_stack_dir, stack_size, epoch):
             continue
 
         epoch_curr = int(fname.split('.')[1].split('-')[0])
+
         if epoch_curr == epoch:
             model_file_epoch = os.path.join(model_stack_dir, fname)
             return model_file_epoch
@@ -102,6 +103,7 @@ for stack_size in stack_sizes:
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
     train_model(model_file, history_file, stack_size)
+    sys.exit()
 
     for epoch in range(epochs-epochs_save, epochs):
 

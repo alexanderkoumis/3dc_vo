@@ -81,7 +81,7 @@ def poses_to_offsets(stamps, poses, stack_size):
     """Only to be used with load_filenames_odom"""
 
     def yaw_from_matrix(M):
-        cy = math.sqrt(M[0, 0]**2 + M[1, 0]**2)
+        cy = math.sqrt(M[0, 0]*M[0, 0] + M[1, 0]*M[1, 0])
         yaw = math.atan2(-M[2, 0],  cy)
         return yaw
 

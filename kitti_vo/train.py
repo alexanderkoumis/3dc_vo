@@ -9,7 +9,7 @@ import sys
 import cv2
 import numpy as np
 import keras.backend as K
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D
 from keras.models import Sequential, load_model
 from keras.optimizers import SGD
@@ -24,16 +24,18 @@ from recent_model_renamer import RecentModelRenamer
 
 # Forward velocity, leftward velocity, angular velocity
 # Precalculated to scale output during training and testing
-ODOM_IMPORTANCE_SCALES = np.array([0.5, 0.2, 1.0])
+ODOM_IMPORTANCE_SCALES = np.array([0.3, 0.1, 1.0])
 
 # # Velocities
 # ODOM_SCALES = np.array([26.4518183, 5.70262262, 1.50662341])
 
 # Offsets
-ODOM_SCALES = np.array([10.97064094, 2.36517883, 0.62509463])
+ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
-TEST_SEQUENCES = ['01', '03', '04', '05', '06', '10']
+TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
+
+
 
 def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
 
@@ -141,7 +143,7 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     # Break this out into seperate function, only for angular velocity
     high_low_ratio = 1.5
-    high_angle_thresh = 0.10
+    high_angle_thresh = 0.12
     high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -223,14 +225,16 @@ def build_model(input_shape, num_outputs):
     model = Sequential()
     model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
+    model.add(Dropout(0.1))
     model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
     model.add(BatchNormalization())
+    model.add(Dropout(0.1))
     model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
     model.add(Flatten())
+    model.add(Dense(256, activation='relu'))
     model.add(Dense(128, activation='relu'))
-    model.add(Dense(64, activation='relu'))
     model.add(LeakyReLU())
-    model.add(Dropout(0.4))
+    model.add(Dropout(0.3))
     model.add(Dense(num_outputs, activation='linear'))
     return model
 
@@ -259,9 +263,9 @@ def get_rgb_scalers(image_path_stacks):
 
 def load_data(data_dir, dataset_type, stack_size, memory_type):
 
-    images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
-                                                                   stack_size, TRAIN_SEQUENCES)
-    images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
+    # images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
+    #                                                                stack_size, TRAIN_SEQUENCES)
+    # images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
 
     images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
                                                                  stack_size, TEST_SEQUENCES)
@@ -302,9 +306,11 @@ def main(args):
     else:
         model = build_model(input_shape, num_outputs)
         model.compile(loss=weighted_mse, optimizer='adam')
-        # model.compile(loss=weighted_mse, optimizer=SGD(lr=0.05, decay=1e-6, momentum=0.9, nesterov=True))
+        model.compile(loss='mse', optimizer='adam')
 
     model.summary()
+
+    callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
 
     if args.memory == 'high':
 
@@ -313,7 +319,7 @@ def main(args):
             batch_size=args.batch_size,
             verbose=1,
             validation_data=(images_test, odom_test),
-            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
+            callbacks=callbacks)
     else:
 
         scalers = get_rgb_scalers(images_test)
@@ -323,7 +329,7 @@ def main(args):
             validation_steps=int(len(images_test)/args.batch_size),
             verbose=1,
             validation_data=dataset_generator(images_test, odom_test, scalers, args.batch_size, args.memory),
-            callbacks=[ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)])
+            callbacks=callbacks)
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
@@ -339,7 +345,7 @@ def parse_args():
     parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
     parser.add_argument('model_file', help='Model file')
     parser.add_argument('history_file', help='Output history file')
-    parser.add_argument('-b', '--batch_size', type=int, default=10, help='Batch size')
+    parser.add_argument('-b', '--batch_size', type=int, default=100, help='Batch size')
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
     parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
