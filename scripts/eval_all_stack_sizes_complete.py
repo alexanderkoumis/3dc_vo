@@ -10,14 +10,14 @@ import sys
 
 # stack_sizes = [3, 5, 7]
 stack_sizes = [5]
-epochs = 200
-epochs_save = 20
-
+epochs = 50
+epochs_save = 10
 
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
-data_dir = '/media/cache/koumis/kitti/odom/160_90'
 eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
+# data_dir = '/media/cache/koumis/kitti/odom/160_30'
+data_dir = '/media/cache/koumis/kitti/odom/160_90'
 
 sys.path.append(os.path.join(kitti_dir, 'kitti_vo'))
 
@@ -70,7 +70,7 @@ def create_results_file(model_file, stack_size):
 
 
 def train_model(model_file, history_file, stack_size):
-    train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
+    train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 20 -s {stack_size}'
     print(f'Training stack size {stack_size} with command: {train_command}')
     subprocess.check_call(train_command,
                           shell=True,
@@ -103,7 +103,6 @@ for stack_size in stack_sizes:
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
     train_model(model_file, history_file, stack_size)
-    sys.exit()
 
     for epoch in range(epochs-epochs_save, epochs):
 

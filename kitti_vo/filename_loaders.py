@@ -105,7 +105,8 @@ def poses_to_offsets(stamps, poses, stack_size):
 
         yaw_diff = yaw_from_matrix(R_diff.T)
 
-        offset = np.array([y_diff, x_diff, yaw_diff])
+        # offset = np.array([y_diff, x_diff, yaw_diff])
+        offset = np.array([y_diff, yaw_diff])
         offsets.append(offset)
 
     return offsets
@@ -133,7 +134,7 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
     image_paths_all = []
     stamps_all = []
     offsets_all = []
-    num_outputs = 3
+    num_outputs = 2
 
     pose_dir = join(base_dir, 'poses')
     sequences_dir = join(base_dir, 'sequences')

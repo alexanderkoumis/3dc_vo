@@ -30,7 +30,8 @@ ODOM_IMPORTANCE_SCALES = np.array([0.3, 0.1, 1.0])
 # ODOM_SCALES = np.array([26.4518183, 5.70262262, 1.50662341])
 
 # Offsets
-ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
+# ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
+ODOM_SCALES = np.array([6.03166538, 0.37534439])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
@@ -142,9 +143,10 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
         return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 1.5
-    high_angle_thresh = 0.12
-    high_angle_count = sum(abs(odom[2]) > high_angle_thresh for odom in odoms_new)
+    high_low_ratio = 0.6
+    # high_angle_thresh = 0.12
+    high_angle_thresh = 0.03
+    high_angle_count = sum(abs(odom[1]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
     image_paths_stacks_new_new = []
@@ -153,7 +155,7 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     idxs = []
 
     for idx, (path_stack, stamp, odom) in enumerate(zip(image_paths_stacks, stamps_new, odoms_new)):
-        if abs(odom[2]) > high_angle_thresh:
+        if abs(odom[1]) > high_angle_thresh:
             image_paths_stacks_new_new.append(path_stack)
             stamps_new_new.append(stamp)
             odoms_new_new.append(odom)
@@ -221,20 +223,35 @@ def load_image_stacks(image_path_stacks):
     return image_stacks
 
 
-def build_model(input_shape, num_outputs):
+# def build_model(input_shape, num_outputs):
+#     model = Sequential()
+#     model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
+#     model.add(BatchNormalization())
+#     model.add(Dropout(0.1))
+#     model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
+#     model.add(BatchNormalization())
+#     model.add(Dropout(0.1))
+#     model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
+#     model.add(Flatten())
+#     model.add(Dense(256, activation='relu'))
+#     model.add(Dense(128, activation='relu'))
+#     model.add(LeakyReLU())
+#     model.add(Dropout(0.3))
+#     model.add(Dense(num_outputs, activation='linear'))
+#     return model
+
+
+def build_model(input_shape, num_outputs, regu=0.01):
     model = Sequential()
-    model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
+    model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
-    model.add(Dropout(0.1))
-    model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
+    model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
     model.add(BatchNormalization())
-    model.add(Dropout(0.1))
-    model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
+    model.add(Conv3D(2, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
     model.add(Flatten())
-    model.add(Dense(256, activation='relu'))
-    model.add(Dense(128, activation='relu'))
+    model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
     model.add(LeakyReLU())
-    model.add(Dropout(0.3))
+    model.add(Dropout(0.4))
     model.add(Dense(num_outputs, activation='linear'))
     return model
 
@@ -263,9 +280,9 @@ def get_rgb_scalers(image_path_stacks):
 
 def load_data(data_dir, dataset_type, stack_size, memory_type):
 
-    # images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
-    #                                                                stack_size, TRAIN_SEQUENCES)
-    # images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
+    images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
+                                                                   stack_size, TRAIN_SEQUENCES)
+    images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
 
     images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
                                                                  stack_size, TEST_SEQUENCES)
@@ -305,8 +322,9 @@ def main(args):
         model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
     else:
         model = build_model(input_shape, num_outputs)
-        model.compile(loss=weighted_mse, optimizer='adam')
-        model.compile(loss='mse', optimizer='adam')
+        # model.compile(loss=weighted_mse, optimizer='adam')
+        # model.compile(loss='mse', optimizer='adam')
+        model.compile(loss='mse', optimizer=SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True))
 
     model.summary()
 
