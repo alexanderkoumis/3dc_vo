@@ -31,7 +31,8 @@ ODOM_IMPORTANCE_SCALES = np.array([0.3, 0.1, 1.0])
 
 # Offsets
 # ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
-ODOM_SCALES = np.array([6.03166538, 0.37534439])
+# ODOM_SCALES = np.array([6.03166538, 0.37534439])
+ODOM_SCALES = np.array([0.37534439])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
@@ -146,7 +147,7 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     high_low_ratio = 0.6
     # high_angle_thresh = 0.12
     high_angle_thresh = 0.03
-    high_angle_count = sum(abs(odom[1]) > high_angle_thresh for odom in odoms_new)
+    high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
     image_paths_stacks_new_new = []
@@ -155,7 +156,7 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     idxs = []
 
     for idx, (path_stack, stamp, odom) in enumerate(zip(image_paths_stacks, stamps_new, odoms_new)):
-        if abs(odom[1]) > high_angle_thresh:
+        if abs(odom[0]) > high_angle_thresh:
             image_paths_stacks_new_new.append(path_stack)
             stamps_new_new.append(stamp)
             odoms_new_new.append(odom)

@@ -37,7 +37,9 @@ def calc_poses(predictions, stamps, stack_size):
 
         # prediction = averaged_prediction(predictions, stack_size, i)
         # vel_y, vel_x, vel_yaw = prediction / duration_total
-        vel_y, vel_yaw = prediction / duration_total
+        # vel_y, vel_yaw = prediction / duration_total
+        vel_yaw = prediction / duration_total
+        vel_y = 3.0
         vel_x = 0.0
 
         trans_local = np.array([vel_y * duration, vel_x * duration])
