@@ -106,8 +106,8 @@ def poses_to_offsets(stamps, poses, stack_size):
         yaw_diff = yaw_from_matrix(R_diff.T)
 
         # offset = np.array([y_diff, x_diff, yaw_diff])
-        # offset = np.array([y_diff, yaw_diff])
-        offset = np.array([yaw_diff])
+        offset = np.array([y_diff, yaw_diff])
+        # offset = np.array([yaw_diff])
         offsets.append(offset)
 
     return offsets
