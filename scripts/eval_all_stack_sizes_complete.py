@@ -10,7 +10,7 @@ import sys
 
 # stack_sizes = [3, 5, 7]
 stack_sizes = [5]
-epochs = 50
+epochs = 100
 epochs_save = 10
 
 
@@ -55,7 +55,8 @@ def get_model_file_epoch(model_stack_dir, stack_size, epoch):
 
         if epoch_curr == epoch:
             model_file_epoch = os.path.join(model_stack_dir, fname)
-            return model_file_epoch
+            val_loss = float(fname.split('.')[-3].split('-')[-1] + '.' + fname.split('.')[-2])
+            return model_file_epoch, val_loss
 
     raise Exception('Bummer dude')
 
@@ -69,8 +70,9 @@ def create_results_file(model_file, stack_size):
                           stderr=open(os.devnull, 'wb'))
 
 
+
 def train_model(model_file, history_file, stack_size):
-    train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 20 -s {stack_size}'
+    train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     print(f'Training stack size {stack_size} with command: {train_command}')
     subprocess.check_call(train_command,
                           shell=True,
@@ -106,10 +108,11 @@ for stack_size in stack_sizes:
 
     for epoch in range(epochs-epochs_save, epochs):
 
-        model_file_epoch = get_model_file_epoch(model_stack_dir, stack_size, epoch)
+        model_file_epoch, val_loss = get_model_file_epoch(model_stack_dir, stack_size, epoch)
+
         create_results_file(model_file_epoch, stack_size)
         trans_err, rot_err = eval_results()
-        result_tup = (trans_err, rot_err, stack_size, epoch, model_file_epoch)
+        result_tup = (trans_err, rot_err, stack_size, epoch, model_file_epoch, val_loss)
         results.append(result_tup)
 
 
@@ -119,9 +122,8 @@ with open(output_file, 'w+') as fd:
     fd.write(result_str)
 
 for result in results:
-    print('trans_err: {}, rot_err: {}, stack_size: {}, epoch: {}'.format(
-        result[0], result[1], result[2], result[3]))
-
+    print('trans_err: {}, rot_err: {}, stack_size: {}, epoch: {}, val_loss: {}'.format(
+        result[0], result[1], result[2], result[3], result[5]))
 
 
 

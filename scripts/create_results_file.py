@@ -37,9 +37,7 @@ def calc_poses(predictions, stamps, stack_size):
 
         # prediction = averaged_prediction(predictions, stack_size, i)
         # vel_y, vel_x, vel_yaw = prediction / duration_total
-        # vel_y, vel_yaw = prediction / duration_total
-        vel_yaw = prediction / duration_total
-        vel_y = 3.0
+        vel_y, vel_yaw = prediction / duration_total
         vel_x = 0.0
 
         trans_local = np.array([vel_y * duration, vel_x * duration])
@@ -73,9 +71,13 @@ def write_poses(output_file, poses):
             fd.write(pose_line)
 
 
-def main(args):
+def main(args, cache=None):
 
-    model = load_model(args.model_file, custom_objects={'weighted_mse': train.weighted_mse})
+    # model_yaw = load_model(args.model_file)
+    # model_y = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_y.h5')
+
+    model_yaw = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_yaw.h5')
+    model_y = load_model(args.model_file)
 
     image_paths, stamps, odom, num_outputs = train.load_filenames(args.input_dir, 'odom', args.stack_size, sequences=train.TEST_SEQUENCES)
 
@@ -86,8 +88,13 @@ def main(args):
         image_paths, stamps, odom = train.stack_data([image_paths_], [stamps_], [odom_], args.stack_size, test_phase=True)
         image_stacks = train.load_image_stacks(image_paths)
 
-        predictions = model.predict(image_stacks)
-        predictions *= train.ODOM_SCALES
+        predictions_yaw = model_yaw.predict(image_stacks)
+        predictions_yaw *= train.ODOM_SCALES
+
+        predictions_y = model_y.predict(image_stacks)
+        predictions_y *= train.ODOM_SCALES
+
+        predictions = np.hstack((predictions_y, predictions_yaw))
 
         poses = calc_poses(predictions, stamps_, args.stack_size)
 

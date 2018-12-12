@@ -6,6 +6,7 @@ import numpy as np
 
 import stamp_parser
 
+YAW=False
 
 def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 5], sequences=None):
     """
@@ -81,7 +82,7 @@ def poses_to_offsets(stamps, poses, stack_size):
     """Only to be used with load_filenames_odom"""
 
     def yaw_from_matrix(M):
-        cy = math.sqrt(M[0, 0]*M[0, 0] + M[1, 0]*M[1, 0])
+        cy = math.sqrt(M[0, 0]**2 + M[1, 0]**2)
         yaw = math.atan2(-M[2, 0],  cy)
         return yaw
 
@@ -106,8 +107,12 @@ def poses_to_offsets(stamps, poses, stack_size):
         yaw_diff = yaw_from_matrix(R_diff.T)
 
         # offset = np.array([y_diff, x_diff, yaw_diff])
-        offset = np.array([y_diff, yaw_diff])
+        # offset = np.array([y_diff, yaw_diff])
         # offset = np.array([yaw_diff])
+        # offset = np.array([y_diff])
+
+        offset = np.array([yaw_diff if YAW else y_diff])
+
         offsets.append(offset)
 
     return offsets

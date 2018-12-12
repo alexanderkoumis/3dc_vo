@@ -9,7 +9,7 @@ import sys
 import cv2
 import numpy as np
 import keras.backend as K
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D
 from keras.models import Sequential, load_model
 from keras.optimizers import SGD
@@ -17,14 +17,10 @@ from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from filename_loaders import load_filenames_raw, load_filenames_odom
+from filename_loaders import load_filenames_raw, load_filenames_odom, YAW
 from image_loader import ImageLoader
 from recent_model_renamer import RecentModelRenamer
 
-
-# Forward velocity, leftward velocity, angular velocity
-# Precalculated to scale output during training and testing
-ODOM_IMPORTANCE_SCALES = np.array([0.3, 0.1, 1.0])
 
 # # Velocities
 # ODOM_SCALES = np.array([26.4518183, 5.70262262, 1.50662341])
@@ -33,6 +29,7 @@ ODOM_IMPORTANCE_SCALES = np.array([0.3, 0.1, 1.0])
 # ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
 # ODOM_SCALES = np.array([6.03166538, 0.37534439])
 ODOM_SCALES = np.array([0.37534439])
+# ODOM_SCALES = np.array([6.03166538])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
@@ -139,12 +136,15 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
+    if not YAW:
+        test_phase = True
+
     if test_phase:
         odoms_new /= ODOM_SCALES
         return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 0.6
+    high_low_ratio = 1.0
     # high_angle_thresh = 0.12
     high_angle_thresh = 0.03
     high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
@@ -242,23 +242,39 @@ def load_image_stacks(image_path_stacks):
 #     return model
 
 
-def build_model(input_shape, num_outputs, regu=0.01):
+# def build_model(input_shape, num_outputs, regu=0.01):
+#     model = Sequential()
+#     model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
+#     model.add(BatchNormalization())
+#     model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+#     model.add(BatchNormalization())
+#     model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+#     model.add(BatchNormalization())
+#     model.add(Conv3D(1, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+#     model.add(Flatten())
+#     model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
+#     model.add(LeakyReLU())
+#     model.add(Dropout(0.2))
+#     model.add(Dense(num_outputs, activation='linear'))
+#     return model
+
+
+def build_model(input_shape, num_outputs, regu=0.05):
     model = Sequential()
-    model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
+    model.add(Conv3D(64, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', input_shape=input_shape))
     model.add(BatchNormalization())
-    model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+    model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
     model.add(BatchNormalization())
-    model.add(Conv3D(2, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+    model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
     model.add(Flatten())
     model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
     model.add(LeakyReLU())
-    model.add(Dropout(0.4))
+    model.add(Dropout(0.5))
     model.add(Dense(num_outputs, activation='linear'))
     return model
 
-
-def weighted_mse(y_true, y_pred):
-    return K.mean(ODOM_IMPORTANCE_SCALES*K.square(y_true - y_pred))
 
 
 def get_rgb_scalers(image_path_stacks):
@@ -320,16 +336,22 @@ def main(args):
         args.data_dir, args.dataset_type, args.stack_size, args.memory)
 
     if args.resume:
-        model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
+        model = load_model(args.model_file)
     else:
         model = build_model(input_shape, num_outputs)
-        # model.compile(loss=weighted_mse, optimizer='adam')
+        # model.compile(loss='mse', optimizer=SGD(lr=0.05, clipvalue=0.5, decay=1e-6, momentum=0.9, nesterov=True))
+        # model.compile(loss='mse', optimizer=SGD(lr=0.01))
         # model.compile(loss='mse', optimizer='adam')
-        model.compile(loss='mse', optimizer=SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True))
+        model.compile(loss='mse', optimizer='rmsprop')
+
 
     model.summary()
 
-    callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
+    callbacks = [
+        ModelCheckpoint(model_file_tpl),
+        RecentModelRenamer(args.model_file)
+        # ReduceLROnPlateau()
+    ]
 
     if args.memory == 'high':
 
@@ -337,6 +359,7 @@ def main(args):
             epochs=args.epochs,
             batch_size=args.batch_size,
             verbose=1,
+            shuffle=True,
             validation_data=(images_test, odom_test),
             callbacks=callbacks)
     else:
