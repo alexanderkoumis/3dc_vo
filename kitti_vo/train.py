@@ -82,20 +82,6 @@ def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory
                 odom_batch = []
 
 
-def calc_yaw_velocity(stamp_start, stamp_end, yaw_start, yaw_end):
-
-    time_elapsed = stamp_end - stamp_start
-    yaw_diff = yaw_end - yaw_start
-
-    if yaw_diff > np.pi:
-        yaw_diff -= 2.0 * np.pi
-    if yaw_diff < -np.pi:
-        yaw_diff += 2.0 * np.pi
-
-    yaw_vel = yaw_diff / time_elapsed
-    return yaw_vel
-
-
 def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     """
     In format:
@@ -136,6 +122,8 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
+    test_phase = True
+
     if not YAW:
         test_phase = True
 
@@ -144,9 +132,13 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
         return image_paths_stacks, stamps_new, odoms_new
 
     # Break this out into seperate function, only for angular velocity
-    high_low_ratio = 1.0
-    # high_angle_thresh = 0.12
-    high_angle_thresh = 0.03
+
+    high_angle_thresh = 0.05
+    high_low_ratio = 3.0
+
+    # high_angle_thresh = 0.03
+    # high_low_ratio = 1.0
+
     high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
     low_angle_keep = int(high_angle_count * high_low_ratio)
 
@@ -224,57 +216,41 @@ def load_image_stacks(image_path_stacks):
     return image_stacks
 
 
-# def build_model(input_shape, num_outputs):
-#     model = Sequential()
-#     model.add(Conv3D(32, 3, strides=3, padding='same', input_shape=input_shape))
-#     model.add(BatchNormalization())
-#     model.add(Dropout(0.1))
-#     model.add(Conv3D(32, 3, strides=3, padding='same', activation='relu'))
-#     model.add(BatchNormalization())
-#     model.add(Dropout(0.1))
-#     model.add(Conv3D(16, 3, strides=3, padding='same', activation='relu'))
-#     model.add(Flatten())
-#     model.add(Dense(256, activation='relu'))
-#     model.add(Dense(128, activation='relu'))
-#     model.add(LeakyReLU())
-#     model.add(Dropout(0.3))
-#     model.add(Dense(num_outputs, activation='linear'))
-#     return model
-
-
-# def build_model(input_shape, num_outputs, regu=0.01):
-#     model = Sequential()
-#     model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
-#     model.add(BatchNormalization())
-#     model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-#     model.add(BatchNormalization())
-#     model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-#     model.add(BatchNormalization())
-#     model.add(Conv3D(1, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-#     model.add(Flatten())
-#     model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
-#     model.add(LeakyReLU())
-#     model.add(Dropout(0.2))
-#     model.add(Dense(num_outputs, activation='linear'))
-#     return model
-
-
-def build_model(input_shape, num_outputs, regu=0.05):
-    model = Sequential()
-    model.add(Conv3D(64, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', input_shape=input_shape))
-    model.add(BatchNormalization())
-    model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), activity_regularizer=l2(), padding='same', activation='relu'))
-    model.add(Flatten())
-    model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
-    model.add(LeakyReLU())
-    model.add(Dropout(0.5))
-    model.add(Dense(num_outputs, activation='linear'))
+def build_model(input_shape, num_outputs):
+    if YAW:
+        regu = 0.005
+        model = Sequential()
+        model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
+        model.add(BatchNormalization())
+        model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Conv3D(1, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+        model.add(Flatten())
+        model.add(Dense(128, kernel_regularizer=l2(regu), activation='relu'))
+        model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
+        model.add(LeakyReLU())
+        model.add(Dropout(0.2))
+        model.add(Dense(num_outputs, activation='linear'))
+    else:
+        regu = 0.1
+        model = Sequential()
+        model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
+        model.add(BatchNormalization())
+        model.add(Dropout(0.1))
+        model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Dropout(0.1))
+        model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+        model.add(BatchNormalization())
+        model.add(Dropout(0.1))
+        model.add(Flatten())
+        model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
+        model.add(LeakyReLU())
+        model.add(Dropout(0.5))
+        model.add(Dense(num_outputs, activation='linear'))
     return model
-
 
 
 def get_rgb_scalers(image_path_stacks):
@@ -339,11 +315,11 @@ def main(args):
         model = load_model(args.model_file)
     else:
         model = build_model(input_shape, num_outputs)
-        # model.compile(loss='mse', optimizer=SGD(lr=0.05, clipvalue=0.5, decay=1e-6, momentum=0.9, nesterov=True))
+        # model.compile(loss='mse', optimizer=SGD(lr=0.05, decay=1e-6, momentum=0.9, nesterov=True))
         # model.compile(loss='mse', optimizer=SGD(lr=0.01))
-        # model.compile(loss='mse', optimizer='adam')
-        model.compile(loss='mse', optimizer='rmsprop')
-
+        model.compile(loss='mse', optimizer='adam')
+        # model.compile(loss='mse', optimizer='rmsprop')
+        # model.compile(loss='mse', optimizer='adadelta')
 
     model.summary()
 

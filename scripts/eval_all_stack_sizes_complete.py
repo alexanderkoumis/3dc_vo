@@ -1,5 +1,6 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 
+import argparse
 import json
 import os
 import shutil
@@ -10,14 +11,16 @@ import sys
 
 # stack_sizes = [3, 5, 7]
 stack_sizes = [5]
-epochs = 100
-epochs_save = 10
+epochs = 200
+epochs_save = 200
 
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
 eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
 # data_dir = '/media/cache/koumis/kitti/odom/160_30'
 data_dir = '/media/cache/koumis/kitti/odom/160_90'
+
+preload_model = '/home/koumis/Development/kitti_vo/models/odom/5/model_odom_yaw.h5'
 
 sys.path.append(os.path.join(kitti_dir, 'kitti_vo'))
 
@@ -56,24 +59,31 @@ def get_model_file_epoch(model_stack_dir, stack_size, epoch):
         if epoch_curr == epoch:
             model_file_epoch = os.path.join(model_stack_dir, fname)
             val_loss = float(fname.split('.')[-3].split('-')[-1] + '.' + fname.split('.')[-2])
-            return model_file_epoch, val_loss
+            return model_file_epoch, val_loss, epoch
 
-    raise Exception('Bummer dude')
+    raise Exception('Bummer dude model_stack_dir: {}, stack_size: {},  epoch: {}'.format(
+        model_stack_dir, stack_size, epoch))
 
 
-def create_results_file(model_file, stack_size):
-    create_results_cmd = f'{create_results_script} {model_file} {stack_size} {data_dir} {subdata_results_dir}'
-    print(f'Running command {create_results_cmd}')
-    subprocess.check_call(create_results_cmd,
-                          shell=True,
-                          stdout=open(os.devnull, 'wb'),
-                          stderr=open(os.devnull, 'wb'))
+def create_results_file(model_file, stack_size, cache):
 
+    import create_results_file
+
+    args = argparse.Namespace(
+        model_file=model_file,
+        stack_size=stack_size,
+        input_dir=data_dir,
+        output_dir=subdata_results_dir)
+
+    create_results_file.main(args, cache)
 
 
 def train_model(model_file, history_file, stack_size):
-    train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
-    print(f'Training stack size {stack_size} with command: {train_command}')
+    # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
+    # print(f'Training stack size {stack_size} with command: {train_command}')
+    train_command = '{} {} odom {} {} -m high -e {} -b 100 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    # train_command = '{} {} odom {} {} -r -m high -e {} -b 100 -s {}'.format(train_file, data_dir, preload_model, history_file, epochs, stack_size)
+    print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,
                           env={**os.environ, 'PYTHONPATH': os.path.join(kitti_dir, 'kitti_vo')},
@@ -83,8 +93,8 @@ def train_model(model_file, history_file, stack_size):
 
 
 def eval_results():
-    eval_results_cmd = f'{eval_bin} {subdata_dir}'
-    print(f'Running command {eval_results_cmd}')
+    eval_results_cmd = '{} {}'.format(eval_bin, subdata_dir)
+    # print('Running command {}'.format(eval_results_cmd))
     subprocess.check_call(eval_results_cmd,
                           shell=True,
                           env={**os.environ, 'ODO_RES_DIR': odo_res_dir, 'ODO_GT_DIR': odo_gt_dir},
@@ -94,6 +104,7 @@ def eval_results():
     return float(trans_err), float(rot_err)
 
 results = []
+cache = {}
 
 for stack_size in stack_sizes:
 
@@ -106,14 +117,17 @@ for stack_size in stack_sizes:
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
     train_model(model_file, history_file, stack_size)
 
-    for epoch in range(epochs-epochs_save, epochs):
+    models_losses = [get_model_file_epoch(model_stack_dir, stack_size, epoch) for epoch in range(1, epochs+1)]
+    models_losses.sort(key=lambda x: x[1])
 
-        model_file_epoch, val_loss = get_model_file_epoch(model_stack_dir, stack_size, epoch)
-
-        create_results_file(model_file_epoch, stack_size)
+    for model_file_epoch, val_loss, epoch in models_losses[:epochs_save]:
+        create_results_file(model_file_epoch, stack_size, cache)
         trans_err, rot_err = eval_results()
         result_tup = (trans_err, rot_err, stack_size, epoch, model_file_epoch, val_loss)
         results.append(result_tup)
+
+        print('model_file_epoch: {}, val_loss: {}, epoch: {}, trans_err: {}'.format(model_file_epoch, val_loss, epoch, trans_err))
+
 
 
 results.sort()

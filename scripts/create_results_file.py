@@ -71,22 +71,38 @@ def write_poses(output_file, poses):
             fd.write(pose_line)
 
 
+def load_image_stacks(sequence, image_paths, cache):
+
+    if cache is not None:
+
+        if sequence not in cache:
+            image_stacks = train.load_image_stacks(image_paths)
+            cache[sequence] = image_stacks
+
+        return cache[sequence]
+
+    image_stacks = train.load_image_stacks(image_paths)
+    return image_stacks
+
+
 def main(args, cache=None):
 
-    # model_yaw = load_model(args.model_file)
-    # model_y = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_y.h5')
-
-    model_yaw = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_yaw.h5')
-    model_y = load_model(args.model_file)
+    if filename_loaders.YAW:
+        model_yaw = load_model(args.model_file)
+        model_y = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_y.h5')
+    else:
+        model_yaw = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_yaw.h5')
+        model_y = load_model(args.model_file)
 
     image_paths, stamps, odom, num_outputs = train.load_filenames(args.input_dir, 'odom', args.stack_size, sequences=train.TEST_SEQUENCES)
 
     for sequence, (image_paths_, stamps_, odom_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, odom)):
 
-        print('Sequence: {}'.format(sequence))
+        # print('Sequence: {}'.format(sequence))
 
         image_paths, stamps, odom = train.stack_data([image_paths_], [stamps_], [odom_], args.stack_size, test_phase=True)
-        image_stacks = train.load_image_stacks(image_paths)
+
+        image_stacks = load_image_stacks(sequence, image_paths, cache)
 
         predictions_yaw = model_yaw.predict(image_stacks)
         predictions_yaw *= train.ODOM_SCALES

@@ -6,7 +6,20 @@ import numpy as np
 
 import stamp_parser
 
-YAW=False
+YAW = True
+
+def calc_yaw_velocity(stamp_start, stamp_end, yaw_start, yaw_end):
+
+    time_elapsed = stamp_end - stamp_start
+    yaw_diff = yaw_end - yaw_start
+
+    if yaw_diff > np.pi:
+        yaw_diff -= 2.0 * np.pi
+    if yaw_diff < -np.pi:
+        yaw_diff += 2.0 * np.pi
+
+    yaw_vel = yaw_diff / time_elapsed
+    return yaw_vel
 
 def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 5], sequences=None):
     """
@@ -161,7 +174,8 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
         stamps_path = join(sequences_dir, sequence_num, 'times.txt')
         pose_path = join(pose_dir, '{}.txt'.format(sequence_num))
 
-        image_filenames = os.listdir(image_dir)
+        image_filenames = [fname for fname in os.listdir(image_dir) if '.png' in fname and fname[0].isdigit()]
+
         image_filenames.sort(key=lambda x: int(x.split('.')[0]))
 
         image_paths = [join(image_dir, fname) for fname in image_filenames]
