@@ -9,9 +9,9 @@ import sys
 import cv2
 import numpy as np
 import keras.backend as K
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D
-from keras.models import Sequential, load_model
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average
+from keras.models import Model, Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
@@ -216,40 +216,80 @@ def load_image_stacks(image_path_stacks):
     return image_stacks
 
 
-def build_model(input_shape, num_outputs):
+
+def build_channel_model(channel_shape, stack_size):
     if YAW:
         regu = 0.005
-        model = Sequential()
-        model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
-        model.add(BatchNormalization())
-        model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Conv3D(1, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-        model.add(Flatten())
-        model.add(Dense(128, kernel_regularizer=l2(regu), activation='relu'))
-        model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
-        model.add(LeakyReLU())
-        model.add(Dropout(0.2))
-        model.add(Dense(num_outputs, activation='linear'))
+        input_layer = Input(shape=channel_shape)
+        hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Conv3D(4, 1, strides=[1, 1, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Conv3D(1, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Flatten()(hidden_layer)
+        hidden_layer = Dense(64, kernel_regularizer=l2(regu), activation='relu')(hidden_layer)
+        hidden_layer = LeakyReLU()(hidden_layer)
+        output_layer = Dense(1, activation='linear')(hidden_layer)
     else:
         regu = 0.1
-        model = Sequential()
-        model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
-        model.add(BatchNormalization())
-        model.add(Dropout(0.1))
-        model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Dropout(0.1))
-        model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-        model.add(BatchNormalization())
-        model.add(Dropout(0.1))
-        model.add(Flatten())
-        model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
-        model.add(LeakyReLU())
-        model.add(Dropout(0.5))
-        model.add(Dense(num_outputs, activation='linear'))
+        input_layer = Input(shape=channel_shape)
+        hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Dropout(0.1)(hidden_layer)
+        hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Dropout(0.1)(hidden_layer)
+        hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Dropout(0.1)(hidden_layer)
+        hidden_layer = Conv3D(4, 1, strides=[1, 1, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Conv3D(1, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = Flatten()(hidden_layer)
+        hidden_layer = Dense(64, kernel_regularizer=l2(regu), activation='relu')(hidden_layer)
+        hidden_layer = LeakyReLU()(hidden_layer)
+        hidden_layer = Dropout(0.5)(hidden_layer)
+        output_layer = Dense(1, activation='linear')(hidden_layer)
+    return input_layer, output_layer
+
+
+def build_model(input_shape, num_outputs, stack_size):
+
+    from copy import deepcopy
+    channel_shape = list(deepcopy(input_shape))
+    channel_shape[3] = 1
+
+    r_input, r_output = build_channel_model(channel_shape, stack_size)
+    g_input, g_output = build_channel_model(channel_shape, stack_size)
+    b_input, b_output = build_channel_model(channel_shape, stack_size)
+
+    output_avg = Average()([r_output, g_output, b_output])
+
+    model = Model(inputs=[r_input, g_input, b_input], outputs=output_avg)
+
+
+    # regu = 0.1
+    # model = Sequential()
+    # model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
+    # model.add(BatchNormalization())
+    # model.add(Dropout(0.1))
+    # model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+    # model.add(BatchNormalization())
+    # model.add(Dropout(0.1))
+    # model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
+    # model.add(BatchNormalization())
+    # model.add(Dropout(0.1))
+    # model.add(Flatten())
+    # model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
+    # model.add(LeakyReLU())
+    # model.add(Dropout(0.5))
+    # model.add(Dense(num_outputs, activation='linear'))
     return model
 
 
@@ -276,6 +316,9 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
     images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
                                                                    stack_size, TRAIN_SEQUENCES)
     images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
+
+    # input_shape = get_input_shape(images_train)
+    # return None, odom_train, None, None, input_shape, None
 
     images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
                                                                  stack_size, TEST_SEQUENCES)
@@ -314,22 +357,25 @@ def main(args):
     if args.resume:
         model = load_model(args.model_file)
     else:
-        model = build_model(input_shape, num_outputs)
-        # model.compile(loss='mse', optimizer=SGD(lr=0.05, decay=1e-6, momentum=0.9, nesterov=True))
-        # model.compile(loss='mse', optimizer=SGD(lr=0.01))
+        model = build_model(input_shape, num_outputs, args.stack_size)
         model.compile(loss='mse', optimizer='adam')
-        # model.compile(loss='mse', optimizer='rmsprop')
-        # model.compile(loss='mse', optimizer='adadelta')
 
     model.summary()
 
-    callbacks = [
-        ModelCheckpoint(model_file_tpl),
-        RecentModelRenamer(args.model_file)
-        # ReduceLROnPlateau()
-    ]
+    callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
 
     if args.memory == 'high':
+
+        images_train = [
+            np.expand_dims(images_train[:, :, :, :, 0], axis=4),
+            np.expand_dims(images_train[:, :, :, :, 1], axis=4),
+            np.expand_dims(images_train[:, :, :, :, 2], axis=4)
+        ]
+        images_test = [
+            np.expand_dims(images_test[:, :, :, :, 0], axis=4),
+            np.expand_dims(images_test[:, :, :, :, 1], axis=4),
+            np.expand_dims(images_test[:, :, :, :, 2], axis=4)
+        ]
 
         history = model.fit(images_train, odom_train,
             epochs=args.epochs,
@@ -338,6 +384,7 @@ def main(args):
             shuffle=True,
             validation_data=(images_test, odom_test),
             callbacks=callbacks)
+
     else:
 
         scalers = get_rgb_scalers(images_test)

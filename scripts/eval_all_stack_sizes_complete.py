@@ -10,10 +10,10 @@ import sys
 
 
 # stack_sizes = [3, 5, 7]
-stack_sizes = [5]
-epochs = 200
-epochs_save = 200
-
+# stack_sizes = [3]
+stack_sizes = [7]
+epochs = 150
+epochs_save = 20
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
 eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
@@ -61,8 +61,10 @@ def get_model_file_epoch(model_stack_dir, stack_size, epoch):
             val_loss = float(fname.split('.')[-3].split('-')[-1] + '.' + fname.split('.')[-2])
             return model_file_epoch, val_loss, epoch
 
-    raise Exception('Bummer dude model_stack_dir: {}, stack_size: {},  epoch: {}'.format(
+    print('Bummer dude model_stack_dir: {}, stack_size: {},  epoch: {}'.format(
         model_stack_dir, stack_size, epoch))
+
+    return None
 
 
 def create_results_file(model_file, stack_size, cache):
@@ -104,20 +106,22 @@ def eval_results():
     return float(trans_err), float(rot_err)
 
 results = []
-cache = {}
 
 for stack_size in stack_sizes:
 
+#    cache = {}
+    cache=None   
     model_stack_dir = os.path.join(model_dir, str(stack_size))
 
-    shutil.rmtree(model_stack_dir)
-    os.mkdir(model_stack_dir)
+#    shutil.rmtree(model_stack_dir)
+#    os.mkdir(model_stack_dir)
 
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
     train_model(model_file, history_file, stack_size)
 
     models_losses = [get_model_file_epoch(model_stack_dir, stack_size, epoch) for epoch in range(1, epochs+1)]
+    models_losses = [m for m in models_losses if m is not None]
     models_losses.sort(key=lambda x: x[1])
 
     for model_file_epoch, val_loss, epoch in models_losses[:epochs_save]:
@@ -127,7 +131,6 @@ for stack_size in stack_sizes:
         results.append(result_tup)
 
         print('model_file_epoch: {}, val_loss: {}, epoch: {}, trans_err: {}'.format(model_file_epoch, val_loss, epoch, trans_err))
-
 
 
 results.sort()

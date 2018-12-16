@@ -89,9 +89,9 @@ def main(args, cache=None):
 
     if filename_loaders.YAW:
         model_yaw = load_model(args.model_file)
-        model_y = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_y.h5')
+        model_y = load_model('/home/koumis/Development/kitti_vo/models/odom/y/{}/model_odom.h5'.format(args.stack_size))
     else:
-        model_yaw = load_model('/home/koumis/Development/kitti_vo/models/odom/model_odom_yaw.h5')
+        model_yaw = load_model('/home/koumis/Development/kitti_vo/models/odom/yaw/{}/model_odom.h5'.format(args.stack_size))
         model_y = load_model(args.model_file)
 
     image_paths, stamps, odom, num_outputs = train.load_filenames(args.input_dir, 'odom', args.stack_size, sequences=train.TEST_SEQUENCES)
@@ -103,12 +103,17 @@ def main(args, cache=None):
         image_paths, stamps, odom = train.stack_data([image_paths_], [stamps_], [odom_], args.stack_size, test_phase=True)
 
         image_stacks = load_image_stacks(sequence, image_paths, cache)
-
-        predictions_yaw = model_yaw.predict(image_stacks)
-        predictions_yaw *= train.ODOM_SCALES
+        image_stacks = [
+            np.expand_dims(image_stacks[:, :, :, :, 0], axis=4),
+            np.expand_dims(image_stacks[:, :, :, :, 1], axis=4),
+            np.expand_dims(image_stacks[:, :, :, :, 2], axis=4)
+        ]
 
         predictions_y = model_y.predict(image_stacks)
         predictions_y *= train.ODOM_SCALES
+
+        predictions_yaw = model_yaw.predict(image_stacks)
+        predictions_yaw *= train.ODOM_SCALES
 
         predictions = np.hstack((predictions_y, predictions_yaw))
 
