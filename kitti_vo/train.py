@@ -133,14 +133,16 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     # Break this out into seperate function, only for angular velocity
 
-    high_angle_thresh = 0.05
+    high_angle_thresh = 0.06
     high_low_ratio = 3.0
 
     # high_angle_thresh = 0.03
     # high_low_ratio = 1.0
 
     high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
-    low_angle_keep = int(high_angle_count * high_low_ratio)
+    low_angle_count = len(odoms_new) - high_angle_count
+    low_angle_keep = int(low_angle_count * 0.5)
+    # low_angle_keep = int(high_angle_count * high_low_ratio)
 
     image_paths_stacks_new_new = []
     stamps_new_new = []
@@ -221,15 +223,13 @@ def build_channel_model(channel_shape, stack_size):
     if YAW:
         regu = 0.005
         input_layer = Input(shape=channel_shape)
-        hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
+        hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Conv3D(4, 1, strides=[1, 1, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
-        hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Conv3D(1, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = Conv3D(4, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Flatten()(hidden_layer)
         hidden_layer = Dense(64, kernel_regularizer=l2(regu), activation='relu')(hidden_layer)
@@ -272,7 +272,6 @@ def build_model(input_shape, num_outputs, stack_size):
     output_avg = Average()([r_output, g_output, b_output])
 
     model = Model(inputs=[r_input, g_input, b_input], outputs=output_avg)
-
 
     # regu = 0.1
     # model = Sequential()
@@ -329,6 +328,37 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
     if memory_type == 'high':
         images_train = load_image_stacks(images_train)
         images_test = load_image_stacks(images_test)
+
+        # Augment dataset
+
+        # images_train_flip = []
+        # odom_train_flip = []
+
+        # for image_stack, odom in zip(images_train, odom_train):
+        #     if abs(odom) > 0.04:
+        #         image_stack_flipped = np.flip(image_stack, axis=1)
+        #         images_train_flip.append(image_stack_flipped)
+        #         odom_train_flip.append(odom * -1.0)
+
+        # images_train = np.concatenate((images_train, images_train_flip))
+        # odom_train = np.concatenate((odom_train, odom_train_flip))
+
+        images_train_flip = np.flip(images_train, axis=2)
+        odom_train_flip = [o * -1.0 for o in odom_train]
+
+        num_stacks = images_train.shape[0]
+        images_train_new = np.repeat(images_train, 2, axis=0)
+        odom_train_new = np.repeat(odom_train, 2, axis=0)
+
+        print(images_train.shape)
+        print(images_train_flip.shape)
+        print(images_train_new.shape)
+
+        images_train_new[num_stacks:num_stacks+num_stacks] = images_train_flip
+        odom_train_new[num_stacks:num_stacks+num_stacks] = odom_train_flip
+
+        images_train = images_train_new
+        odom_train = odom_train_new
 
     return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
 
