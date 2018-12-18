@@ -10,10 +10,11 @@ import sys
 
 
 # stack_sizes = [3, 5, 7]
-# stack_sizes = [3]
-stack_sizes = [7]
-epochs = 150
-epochs_save = 20
+# stack_sizes = [2, 3, 5, 7, 10]
+# stack_sizes = [int(sys.argv[1])]
+stack_sizes = [5]
+epochs = 600
+epochs_save = 100
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
 eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
@@ -67,9 +68,9 @@ def get_model_file_epoch(model_stack_dir, stack_size, epoch):
     return None
 
 
-def create_results_file(model_file, stack_size, cache):
+def create_results_file(model_file, stack_size):
 
-    import create_results_file
+    import create_results_file_fixed_y
 
     args = argparse.Namespace(
         model_file=model_file,
@@ -77,14 +78,14 @@ def create_results_file(model_file, stack_size, cache):
         input_dir=data_dir,
         output_dir=subdata_results_dir)
 
-    create_results_file.main(args, cache)
+    create_results_file_fixed_y.main(args)
 
 
 def train_model(model_file, history_file, stack_size):
     # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     # print(f'Training stack size {stack_size} with command: {train_command}')
-    train_command = '{} {} odom {} {} -m high -e {} -b 100 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
-    # train_command = '{} {} odom {} {} -r -m high -e {} -b 100 -s {}'.format(train_file, data_dir, preload_model, history_file, epochs, stack_size)
+    train_command = '{} {} odom {} {} -m high -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    # train_command = '{} {} odom {} {} -r -m high -e {} -b 400 -s {}'.format(train_file, data_dir, preload_model, history_file, epochs, stack_size)
     print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,
@@ -107,17 +108,15 @@ def eval_results():
 
 results = []
 
+
 for stack_size in stack_sizes:
 
-#    cache = {}
-    cache=None   
     model_stack_dir = os.path.join(model_dir, str(stack_size))
-
-#    shutil.rmtree(model_stack_dir)
-#    os.mkdir(model_stack_dir)
-
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
+
+    # shutil.rmtree(model_stack_dir)
+    # os.mkdir(model_stack_dir)
     train_model(model_file, history_file, stack_size)
 
     models_losses = [get_model_file_epoch(model_stack_dir, stack_size, epoch) for epoch in range(1, epochs+1)]
@@ -125,7 +124,7 @@ for stack_size in stack_sizes:
     models_losses.sort(key=lambda x: x[1])
 
     for model_file_epoch, val_loss, epoch in models_losses[:epochs_save]:
-        create_results_file(model_file_epoch, stack_size, cache)
+        create_results_file(model_file_epoch, stack_size)
         trans_err, rot_err = eval_results()
         result_tup = (trans_err, rot_err, stack_size, epoch, model_file_epoch, val_loss)
         results.append(result_tup)

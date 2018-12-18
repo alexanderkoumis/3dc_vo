@@ -34,6 +34,8 @@ ODOM_SCALES = np.array([0.37534439])
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 
+HIGH_ANGLE = 0.1
+
 
 
 def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
@@ -133,15 +135,13 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     # Break this out into seperate function, only for angular velocity
 
-    high_angle_thresh = 0.06
-    high_low_ratio = 3.0
-
-    # high_angle_thresh = 0.03
-    # high_low_ratio = 1.0
+    # high_angle_thresh = 0.06
+    # high_low_ratio = 3.0
+    high_angle_thresh = HIGH_ANGLE
 
     high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
     low_angle_count = len(odoms_new) - high_angle_count
-    low_angle_keep = int(low_angle_count * 0.5)
+    low_angle_keep = int(low_angle_count * 0.75)
     # low_angle_keep = int(high_angle_count * high_low_ratio)
 
     image_paths_stacks_new_new = []
@@ -335,7 +335,7 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
         # odom_train_flip = []
 
         # for image_stack, odom in zip(images_train, odom_train):
-        #     if abs(odom) > 0.04:
+        #     if abs(odom) > HIGH_ANGLE:
         #         image_stack_flipped = np.flip(image_stack, axis=1)
         #         images_train_flip.append(image_stack_flipped)
         #         odom_train_flip.append(odom * -1.0)
@@ -378,6 +378,13 @@ def save_history_file(history_file, history_dict):
         fd.write(history_str)
 
 
+def weighted_mse(y_true, y_pred):
+    mask_gt = K.cast(K.abs(y_true) > HIGH_ANGLE, np.float32) * np.array([2.0])
+    mask_lt = K.cast(K.abs(y_true) < HIGH_ANGLE, np.float32) * np.array([1.0])
+    return K.mean(K.square(y_true - y_pred) * mask_gt + K.square(y_true - y_pred) * mask_lt)
+
+
+
 def main(args):
 
     model_file_tpl = get_model_tpl(args.model_file)
@@ -385,10 +392,11 @@ def main(args):
         args.data_dir, args.dataset_type, args.stack_size, args.memory)
 
     if args.resume:
-        model = load_model(args.model_file)
+        model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
     else:
         model = build_model(input_shape, num_outputs, args.stack_size)
-        model.compile(loss='mse', optimizer='adam')
+        # model.compile(loss='mse', optimizer='adam')
+        model.compile(loss=weighted_mse, optimizer='adam')
 
     model.summary()
 
