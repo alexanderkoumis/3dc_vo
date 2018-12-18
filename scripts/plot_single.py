@@ -148,17 +148,13 @@ def plot_trajectory_2d(predictions, ground_truth, stamps, stack_size):
 stack_size = 5
 
 
-# kitti_dir = '/home/ubuntu/Development/kitti_vo'
-kitti_dir = '/Users/alexander/Development/kitti_vo'
-# base_dir = os.path.join(kitti_dir, 'datasets', 'odom', '160_90')
-base_dir = os.path.join(kitti_dir, 'datasets', 'odom', '160_90')
-sequences_dir = os.path.join(base_dir, 'sequences')
-# model_file = os.path.join(kitti_dir, 'models', 'model_odom.0197-0.000389-0.001496.h5')
-# model_file = os.path.join(kitti_dir, 'models', 'y_yaw', 'model_odom.0043-0.025053-0.027301.h5')
-# model_file_yaw = os.path.join(kitti_dir, 'models', 'yaw', 'model_odom.h5')
-# model_file_yaw = os.path.join(kitti_dir, 'models', 'yaw', 'model_odom.0124-0.001708-0.001706.h5')
-# model_file_yaw = os.path.join(kitti_dir, 'models', 'yaw', 'model_odom_yaw_5.h5')
-model_file_yaw = os.path.join(kitti_dir, 'models', 'yaw', 'model_odom_yaw.h5')
+
+kitti_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+dataset_dir = os.path.join(kitti_dir, 'datasets', 'odom', '160_90')
+sequences_dir = os.path.join(dataset_dir, 'sequences')
+
+model_file_yaw = os.path.join(kitti_dir, 'models', 'yaw', 'model_odom.0144-0.001839-0.001990.h5')
 model_file_y = os.path.join(kitti_dir, 'models', 'y', 'model_odom.0065-2.659613-5.205640.h5')
 
 results_dir = os.path.join(kitti_dir, 'results')
@@ -167,7 +163,7 @@ results_dir = os.path.join(kitti_dir, 'results')
 seq_name = '00' if len(sys.argv) == 1 else sys.argv[1]
 print(seq_name)
 
-image_paths, stamps, odom, num_outputs = train.load_filenames(base_dir, 'odom', stack_size, sequences=[seq_name])
+image_paths, stamps, odom, num_outputs = train.load_filenames(dataset_dir, 'odom', stack_size, sequences=[seq_name])
 image_paths, stamps, odom = train.stack_data(image_paths, stamps, odom, stack_size, test_phase=True)
 image_stacks = train.load_image_stacks(image_paths)
 
