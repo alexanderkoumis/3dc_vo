@@ -13,15 +13,13 @@ import sys
 # stack_sizes = [2, 3, 5, 7, 10]
 # stack_sizes = [int(sys.argv[1])]
 stack_sizes = [5]
-epochs = 600
+epochs = 400
 epochs_save = 100
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
 eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
-# data_dir = '/media/cache/koumis/kitti/odom/160_30'
 data_dir = '/media/cache/koumis/kitti/odom/160_90'
-
-preload_model = '/home/koumis/Development/kitti_vo/models/odom/5/model_odom_yaw.h5'
+# data_dir = '/media/cache/koumis/kitti/odom/360_180'
 
 sys.path.append(os.path.join(kitti_dir, 'kitti_vo'))
 
@@ -30,6 +28,9 @@ odo_res_dir = os.path.join(data_dir, 'poses_results/')
 
 model_dir = os.path.join(kitti_dir, 'models', 'odom')
 results_dir = os.path.join(kitti_dir, 'results', 'odom')
+
+# model_dir = os.path.join(kitti_dir, 'models', 'odom_360_180')
+# results_dir = os.path.join(kitti_dir, 'results', 'odom_360_180')
 
 train_file = os.path.join(kitti_dir, 'kitti_vo', 'train.py')
 plot_file = os.path.join(kitti_dir, 'kitti_vo', 'plot.py')
@@ -85,7 +86,7 @@ def train_model(model_file, history_file, stack_size):
     # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     # print(f'Training stack size {stack_size} with command: {train_command}')
     train_command = '{} {} odom {} {} -m high -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
-    # train_command = '{} {} odom {} {} -r -m high -e {} -b 400 -s {}'.format(train_file, data_dir, preload_model, history_file, epochs, stack_size)
+    # train_command = '{} {} odom {} {} -m high -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
     print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,

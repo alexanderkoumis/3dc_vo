@@ -329,19 +329,48 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
         images_train = load_image_stacks(images_train)
         images_test = load_image_stacks(images_test)
 
-        # Augment dataset
+        # Augment dataset 0 (skip)
+
+        # images_train_double = []
+        # odom_train_double = []
+
+        # for idx, (image_stack, odom) in enumerate(zip(images_train, odom_train)):
+        #     if (idx + stack_size - 1 < len(images_train) and
+        #         0.06 < abs(odom) < 0.10):
+
+        #         image_stack_next = images_train[idx+stack_size-1]
+        #         odom_next = odom_train[idx+stack_size-1]
+
+        #         image_stack_new = np.concatenate([
+        #             np.expand_dims(image_stack[:, :, 0, :], axis=2),
+        #             np.expand_dims(image_stack[:, :, 2, :], axis=2),
+        #             np.expand_dims(image_stack[:, :, 4, :], axis=2),
+        #             np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
+        #             np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
+        #         ], axis=2)
+
+        #         odom_new = odom + odom_next
+        #         images_train_double.append(image_stack_new)
+        #         odom_train_double.append(odom_new)
+
+        # images_train = np.concatenate((images_train, images_train_double))
+        # odom_train = np.concatenate((odom_train, odom_train_double))
+
+        # Augment dataset 1
 
         # images_train_flip = []
         # odom_train_flip = []
 
         # for image_stack, odom in zip(images_train, odom_train):
-        #     if abs(odom) > HIGH_ANGLE:
+        #     if abs(odom) > 0.05:
         #         image_stack_flipped = np.flip(image_stack, axis=1)
         #         images_train_flip.append(image_stack_flipped)
         #         odom_train_flip.append(odom * -1.0)
 
         # images_train = np.concatenate((images_train, images_train_flip))
         # odom_train = np.concatenate((odom_train, odom_train_flip))
+
+        # Augment dataset 2
 
         images_train_flip = np.flip(images_train, axis=2)
         odom_train_flip = [o * -1.0 for o in odom_train]
@@ -359,6 +388,8 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
 
         images_train = images_train_new
         odom_train = odom_train_new
+
+
 
     return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
 

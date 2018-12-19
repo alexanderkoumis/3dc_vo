@@ -188,10 +188,10 @@ def weighted_mse(y_true, y_pred):
 
 
 
-# model_y = load_model(model_file_y)
-# predictions_y = model_y.predict(image_stacks)
-# predictions_y *= train.ODOM_SCALES
-predictions_y = odom_gt[:, 0].reshape(-1, 1)
+model_y = load_model(model_file_y)
+predictions_y = model_y.predict(image_stacks)
+predictions_y *= train.ODOM_SCALES
+# predictions_y = odom_gt[:, 0].reshape(-1, 1)
 
 model_yaw = load_model(model_file_yaw, custom_objects={'weighted_mse': weighted_mse})
 predictions_yaw = model_yaw.predict(image_stacks)
