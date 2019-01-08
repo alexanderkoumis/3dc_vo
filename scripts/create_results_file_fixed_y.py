@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import keras.backend as K
 from keras.models import load_model
 
 import filename_loaders
@@ -71,6 +72,27 @@ def write_poses(output_file, poses):
             fd.write(pose_line)
 
 
+def predict(model_yaw, image_stacks, mode):
+
+    if mode == 'normal':
+
+        predictions_yaw = model_yaw.predict(image_stacks)
+
+    elif mode == 'flipped':
+
+        image_stacks_flipped = [np.flip(s, axis=2) for s in image_stacks]
+        predictions_yaw = -model_yaw.predict(image_stacks_flipped)
+
+    elif mode == 'merged':
+
+        image_stacks_flipped = [np.flip(s, axis=2) for s in image_stacks]
+        predictions_yaw = model_yaw.predict(image_stacks)            
+        predictions_yaw_flipped = -model_yaw.predict(image_stacks_flipped)
+        predictions_yaw = np.mean((predictions_yaw, predictions_yaw_flipped), axis=0)
+
+    return predictions_yaw
+
+
 def main(args):
 
     model_yaw = load_model(args.model_file, custom_objects={'weighted_mse': train.weighted_mse})
@@ -80,10 +102,7 @@ def main(args):
 
     for sequence, (image_paths_, stamps_, odom_gt_y_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, odoms_gt_y)):
 
-        # print('Sequence: {}'.format(sequence))
-
         image_paths, stamps, odom_gt_y = train.stack_data([image_paths_], [stamps_], [odom_gt_y_], args.stack_size, test_phase=True)
-        odom_gt_y *= train.ODOM_SCALES
 
         image_stacks = train.load_image_stacks(image_paths)
         image_stacks = [
@@ -92,15 +111,18 @@ def main(args):
             np.expand_dims(image_stacks[:, :, :, :, 2], axis=4)
         ]
 
-        predictions_yaw = model_yaw.predict(image_stacks)
-        predictions_yaw *= train.ODOM_SCALES
+        predictions_yaw = predict(model_yaw, image_stacks, args.mode)
+        # predictions_yaw *= train.ODOM_SCALES
 
-        predictions = np.hstack((odom_gt_y, predictions_yaw))
+        predictions = np.hstack((np.array(odom_gt_y).reshape(-1, 1), np.array(predictions_yaw).reshape(-1, 1)))
 
         poses = calc_poses(predictions, stamps_, args.stack_size)
 
         output_file = os.path.join(args.output_dir, '{}.txt'.format(sequence))
         write_poses(output_file, poses)
+
+    K.clear_session()
+    del model_yaw
 
 
 def parse_args():
@@ -109,7 +131,12 @@ def parse_args():
     parser.add_argument('stack_size', type=int, help='Stack size')
     parser.add_argument('input_dir', help='Base directory')
     parser.add_argument('output_dir', help='Results directory')
+    parser.add_argument('mode', help='Predict mode')
     args = parser.parse_args()
+
+    if args.mode not in {'normal', 'flipped', 'merged'}:
+        raise Exception('args.mode must be one of [normal, flipped, merged]')
+
     return args
 
 if __name__ == '__main__':

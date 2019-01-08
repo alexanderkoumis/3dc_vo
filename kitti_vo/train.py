@@ -34,8 +34,11 @@ ODOM_SCALES = np.array([0.37534439])
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 
-HIGH_ANGLE = 0.1
+# TRAIN_SEQUENCES = ['00', '02', '08', '09', '03', '04', '07']
+# TEST_SEQUENCES = ['05', '06', '10']
 
+
+HIGH_ANGLE = 0.05
 
 
 def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
@@ -130,8 +133,8 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
         test_phase = True
 
     if test_phase:
-        odoms_new /= ODOM_SCALES
-        return image_paths_stacks, stamps_new, odoms_new
+        # odoms_new /= ODOM_SCALES
+        return image_paths_stacks, stamps_new, np.array(odoms_new)
 
     # Break this out into seperate function, only for angular velocity
 
@@ -335,21 +338,30 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
         # odom_train_double = []
 
         # for idx, (image_stack, odom) in enumerate(zip(images_train, odom_train)):
-        #     if (idx + stack_size - 1 < len(images_train) and
-        #         0.06 < abs(odom) < 0.10):
+        #     if idx + stack_size - 1 < len(images_train):
 
         #         image_stack_next = images_train[idx+stack_size-1]
         #         odom_next = odom_train[idx+stack_size-1]
 
+        #         odom_new = odom + odom_next
+
+        #         if np.abs(odom_new) > np.max(odom_train) * 0.8:
+        #             continue
+
+        #         # image_stack_new = np.concatenate([
+        #         #     np.expand_dims(image_stack[:, :, 0, :], axis=2),
+        #         #     np.expand_dims(image_stack[:, :, 2, :], axis=2),
+        #         #     np.expand_dims(image_stack[:, :, 4, :], axis=2),
+        #         #     np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
+        #         #     np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
+        #         # ], axis=2)
+
         #         image_stack_new = np.concatenate([
         #             np.expand_dims(image_stack[:, :, 0, :], axis=2),
         #             np.expand_dims(image_stack[:, :, 2, :], axis=2),
-        #             np.expand_dims(image_stack[:, :, 4, :], axis=2),
         #             np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
-        #             np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
         #         ], axis=2)
 
-        #         odom_new = odom + odom_next
         #         images_train_double.append(image_stack_new)
         #         odom_train_double.append(odom_new)
 
@@ -388,7 +400,6 @@ def load_data(data_dir, dataset_type, stack_size, memory_type):
 
         images_train = images_train_new
         odom_train = odom_train_new
-
 
 
     return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
@@ -488,6 +499,13 @@ def parse_args():
 
     if args.memory not in {'low', 'medium', 'high'}:
         sys.exit('--memory option must be one of low, medium, or high')
+
+    global HIGH_ANGLE
+    HIGH_ANGLE = {
+        3: 0.05,
+        5: 0.1,
+        7: 0.15
+    }[args.stack_size]
 
     return args
 
