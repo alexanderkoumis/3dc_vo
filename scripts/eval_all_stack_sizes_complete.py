@@ -146,8 +146,8 @@ results = []
 
 for stack_size in stack_sizes:
 
-    # model_stack_dir = os.path.join(model_dir, str(stack_size))
-    model_stack_dir = '/home/koumis/Development/kitti_vo/models/odom/yaw/5'
+    model_stack_dir = os.path.join(model_dir, str(stack_size))
+    #model_stack_dir = '/home/koumis/Development/kitti_vo/models/odom/yaw/5'
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
 
@@ -160,8 +160,8 @@ for stack_size in stack_sizes:
     models_losses.sort(key=lambda x: x[1])
 
     for model_file_epoch, val_loss, epoch in models_losses[:epochs_save]:
-        # for mode in ['normal', 'flipped', 'merged']:
-        for mode in ['normal']:
+        for mode in ['normal', 'flipped', 'merged']:
+        #for mode in ['normal']:
             create_results_file(model_file_epoch, stack_size, mode)
             trans_err, rot_err = eval_results()
             result_tup = (trans_err, rot_err, stack_size, epoch, model_file_epoch, val_loss, mode)
