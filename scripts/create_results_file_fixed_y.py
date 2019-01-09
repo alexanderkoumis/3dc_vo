@@ -105,11 +105,6 @@ def main(args):
         image_paths, stamps, odom_gt_y = train.stack_data([image_paths_], [stamps_], [odom_gt_y_], args.stack_size, test_phase=True)
 
         image_stacks = train.load_image_stacks(image_paths)
-        image_stacks = [
-            np.expand_dims(image_stacks[:, :, :, :, 0], axis=4),
-            np.expand_dims(image_stacks[:, :, :, :, 1], axis=4),
-            np.expand_dims(image_stacks[:, :, :, :, 2], axis=4)
-        ]
 
         predictions_yaw = predict(model_yaw, image_stacks, args.mode)
         # predictions_yaw *= train.ODOM_SCALES

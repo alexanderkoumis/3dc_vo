@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
 import json
 import os
 import random
@@ -10,7 +11,7 @@ import cv2
 import numpy as np
 import keras.backend as K
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average
+from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average, SpatialDropout3D
 from keras.models import Model, Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
@@ -22,10 +23,10 @@ from image_loader import ImageLoader
 from recent_model_renamer import RecentModelRenamer
 
 
-ODOM_SCALES = np.array([0.37534439])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
+
 
 HIGH_ANGLE = 0.05
 
@@ -105,8 +106,10 @@ def build_channel_model(channel_shape, stack_size):
         input_layer = Input(shape=channel_shape)
         hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = SpatialDropout3D(0.1)(hidden_layer)
         hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
+        hidden_layer = SpatialDropout3D(0.1)(hidden_layer)
         hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Conv3D(4, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
@@ -141,16 +144,10 @@ def build_channel_model(channel_shape, stack_size):
 
 def build_model(input_shape, stack_size):
 
-    channel_shape = list(deepcopy(input_shape))
-    channel_shape[3] = 1
+    channel_shape = list(copy.deepcopy(input_shape))
 
-    r_input, r_output = build_channel_model(channel_shape, stack_size)
-    g_input, g_output = build_channel_model(channel_shape, stack_size)
-    b_input, b_output = build_channel_model(channel_shape, stack_size)
-
-    output_avg = Average()([r_output, g_output, b_output])
-
-    model = Model(inputs=[r_input, g_input, b_input], outputs=output_avg)
+    in_, out_ = build_channel_model(channel_shape, stack_size)
+    model = Model(inputs=in_, outputs=out_)
 
     return model
 
