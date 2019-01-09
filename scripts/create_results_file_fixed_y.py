@@ -98,7 +98,7 @@ def main(args):
     model_yaw = load_model(args.model_file, custom_objects={'weighted_mse': train.weighted_mse})
 
     filename_loaders.YAW = False
-    image_paths, stamps, odoms_gt_y, num_outputs = train.load_filenames(args.input_dir, 'odom', args.stack_size, sequences=train.TEST_SEQUENCES)
+    image_paths, stamps, odoms_gt_y = filename_loaders.load_filenames_odom(args.input_dir, args.stack_size, sequences=train.TEST_SEQUENCES)
 
     for sequence, (image_paths_, stamps_, odom_gt_y_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, odoms_gt_y)):
 

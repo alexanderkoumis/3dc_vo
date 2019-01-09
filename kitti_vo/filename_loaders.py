@@ -8,87 +8,6 @@ import stamp_parser
 
 YAW = True
 
-def calc_yaw_velocity(stamp_start, stamp_end, yaw_start, yaw_end):
-
-    time_elapsed = stamp_end - stamp_start
-    yaw_diff = yaw_end - yaw_start
-
-    if yaw_diff > np.pi:
-        yaw_diff -= 2.0 * np.pi
-    if yaw_diff < -np.pi:
-        yaw_diff += 2.0 * np.pi
-
-    yaw_vel = yaw_diff / time_elapsed
-    return yaw_vel
-
-def load_filenames_raw(base_dir, stack_size, odom_idxs=[8, 9, 5], sequences=None):
-    """
-    Directory structure:
-        base_dir/
-            2011_09_26_drive_0001_sync/
-                image_02/
-                    timestamps.txt
-                    data/
-                        [d+].png
-                oxts/
-                    dataformat.txt
-                    timestamps.txt
-                    data/
-                        [d+].txt
-
-    Odom data format:
-        5  yaw: heading (rad), 0 = east, positive = counter clockwise, range: -pi .. +pi
-        8   vf: forward velocity, i.e. parallel to earth-surface (m/s)
-        9   vl: leftward velocity, i.e. parallel to earth-surface (m/s)
-        10  vu: upward velocity, i.e. perpendicular to earth-surface (m/s)
-        14  af: forward acceleration (m/s^2)
-        15  al: leftward acceleration (m/s^2)
-        16  au: upward acceleration (m/s^2)
-        20  wf: angular rate around forward axis (rad/s)
-        21  wl: angular rate around leftward axis (rad/s)
-        22  wu: angular rate around upward axis (rad/s)
-    """
-
-    def load_odometry(odom_path, image_name):
-        """Load target odometry"""
-        full_path = join(odom_path, '{}.txt'.format(image_name))
-        with open(full_path, 'r') as fd:
-            data = fd.read().split()
-            vals = [float(data[idx]) for idx in odom_idxs]
-            return vals
-
-    image_paths_all = []
-    odom_all = []
-    stamps_all = []
-    num_outputs = len(odom_idxs)
-
-    sequences = os.listdir(base_dir)
-    parser = stamp_parser.StampParser()
-
-    for sequence in sequences:
-
-        sequence_dir = join(base_dir, sequence)
-
-        image_data_dir = join(sequence_dir, 'image_02', 'data')
-        oxts_dir = join(sequence_dir, 'oxts')
-        oxts_data_dir = join(oxts_dir, 'data')
-
-        oxts_stamps_txt = join(oxts_dir, 'timestamps.txt')
-
-        image_fnames = os.listdir(image_data_dir)
-        image_fnames.sort(key=lambda x: int(x.split('.')[0]))
-        image_names = [path.split('.')[0] for path in image_fnames]
-
-        image_full_fnames = [join(image_data_dir, fname) for fname in image_fnames]
-        odom_data = [load_odometry(oxts_data_dir, name) for name in image_names]
-        stamps = [parser.parse(val) for val in open(oxts_stamps_txt).readlines()]
-
-        image_paths_all.append(image_full_fnames)
-        odom_all.append(odom_data)
-        stamps_all.append(stamps)
-
-    return image_paths_all, stamps_all, odom_all, num_outputs
-
 
 def poses_to_offsets(stamps, poses, stack_size):
 
@@ -190,5 +109,4 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
         stamps_all.append(stamps[:-stack_size+1])
         offsets_all.append(offsets)
 
-    num_outputs = len(offsets_all[0][0])
-    return image_paths_all, stamps_all, offsets_all, num_outputs
+    return image_paths_all, stamps_all, offsets_all

@@ -95,8 +95,8 @@ def create_results_file(model_file, stack_size, mode):
 def train_model(model_file, history_file, stack_size):
     # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     # print(f'Training stack size {stack_size} with command: {train_command}')
-    # train_command = '{} {} odom {} {} -m high -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
-    train_command = '{} {} odom {} {} -m high -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    # train_command = '{} {} {} {} -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    train_command = '{} {} {} {} -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
     print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,

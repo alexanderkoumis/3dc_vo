@@ -17,101 +17,28 @@ from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from filename_loaders import load_filenames_raw, load_filenames_odom, YAW
+from filename_loaders import load_filenames_odom, YAW
 from image_loader import ImageLoader
 from recent_model_renamer import RecentModelRenamer
 
 
-# # Velocities
-# ODOM_SCALES = np.array([26.4518183, 5.70262262, 1.50662341])
-
-# Offsets
-# ODOM_SCALES = np.array([6.03166538, 0.93833049, 0.37534439])
-# ODOM_SCALES = np.array([6.03166538, 0.37534439])
 ODOM_SCALES = np.array([0.37534439])
-# ODOM_SCALES = np.array([6.03166538])
 
 TRAIN_SEQUENCES = ['00', '02', '08', '09']
 TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 
-# TRAIN_SEQUENCES = ['00', '02', '08', '09', '03', '04', '07']
-# TEST_SEQUENCES = ['05', '06', '10']
-
-
 HIGH_ANGLE = 0.05
-
-
-def dataset_generator(image_paths_all, odom_all, rgb_scalers, batch_size, memory):
-
-    image_loader = ImageLoader(memory)
-
-    input_target_list = list(zip(image_paths_all, odom_all))
-    random.shuffle(input_target_list)
-
-    while True:
-
-        stacked_images_batch = []
-        odom_batch = []
-
-        for paths, odom in input_target_list:
-
-            images = [image_loader.load_image(path).astype(np.float32) for path in paths]
-
-            for idx, image in enumerate(images):
-
-                for channel, scaler in enumerate(rgb_scalers):
-
-                    image_channel = image[:, :, channel]
-                    image_channel_flat = image_channel.reshape(-1, 1)
-                    image_channel_flat = scaler.transform(image_channel_flat)
-                    image_channel = image_channel_flat.reshape(image[:, :, channel].shape)
-                    images[idx][:, :, channel] = image_channel
-
-            rows, cols, channels = images[0].shape
-            stack_size = len(paths)
-
-            stack_shape = (rows, cols, stack_size, channels)
-            image_stack = np.zeros(stack_shape, dtype=np.float32)
-
-            for stack_idx, image in enumerate(images):
-                image_stack[:, :, stack_idx, 0] = image[:, :, 0]
-                image_stack[:, :, stack_idx, 1] = image[:, :, 1]
-                image_stack[:, :, stack_idx, 2] = image[:, :, 2]
-
-            stacked_images_batch.append(image_stack)
-            odom_batch.append(odom)
-
-            if len(stacked_images_batch) == batch_size:
-                yield np.array(stacked_images_batch), np.array(odom_batch)
-                stacked_images_batch = []
-                odom_batch = []
 
 
 def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
     """
     In format:
-        image_paths: [
-            [sequence 0 image paths],
-            [sequence 1 image_paths],
-            etc
-        ]
-        stamps: [
-            [sequence 0 stamps],
-            [sequence 1 stamps],
-            etc
-        ]
-        poses: [
-            [sequence 0 poses],
-            [sequence 1 poses],
-            etc
-        ]
+        image_paths: [[sequence 0 image paths], [sequence 1 image_paths], etc]
+        stamps: [[sequence 0 stamps], [sequence 1 stamps], etc]
+        poses: [[sequence 0 poses], [sequence 1 poses], etc]
 
     Out format:
-        image_paths/stamps/poses: [
-            [stack 0],
-            [stack 1],
-            etc
-        ]
+        image_paths/stamps/poses: [[stack 0], [stack 1], etc]
     """
 
     image_paths_stacks = []
@@ -127,63 +54,13 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
             stamps_new.append(stamps_seq[i])
             odoms_new.append(odom_seq[i])
 
-    test_phase = True
-
-    if not YAW:
-        test_phase = True
-
-    if test_phase:
-        # odoms_new /= ODOM_SCALES
-        return image_paths_stacks, stamps_new, np.array(odoms_new)
-
-    # Break this out into seperate function, only for angular velocity
-
-    # high_angle_thresh = 0.06
-    # high_low_ratio = 3.0
-    high_angle_thresh = HIGH_ANGLE
-
-    high_angle_count = sum(abs(odom[0]) > high_angle_thresh for odom in odoms_new)
-    low_angle_count = len(odoms_new) - high_angle_count
-    low_angle_keep = int(low_angle_count * 0.75)
-    # low_angle_keep = int(high_angle_count * high_low_ratio)
-
-    image_paths_stacks_new_new = []
-    stamps_new_new = []
-    odoms_new_new = []
-    idxs = []
-
-    for idx, (path_stack, stamp, odom) in enumerate(zip(image_paths_stacks, stamps_new, odoms_new)):
-        if abs(odom[0]) > high_angle_thresh:
-            image_paths_stacks_new_new.append(path_stack)
-            stamps_new_new.append(stamp)
-            odoms_new_new.append(odom)
-        else:
-            idxs.append(idx)
-
-    keep_idxs = np.random.choice(idxs, low_angle_keep, replace=False)
-    for keep_idx in keep_idxs:
-        image_paths_stacks_new_new.append(image_paths_stacks[keep_idx])
-        stamps_new_new.append(stamps_new[keep_idx])
-        odoms_new_new.append(odoms_new[keep_idx])
-
-    odoms_new_new = np.array(odoms_new_new)
-    odoms_new_new /= ODOM_SCALES
-
-    return image_paths_stacks_new_new, stamps_new_new, odoms_new_new
+    return image_paths_stacks, stamps_new, np.array(odoms_new)
 
 
 def get_input_shape(image_paths):
     stack_size = len(image_paths[0])
     rows, cols, channels = cv2.imread(image_paths[0][0]).shape
     return rows, cols, stack_size, channels
-
-
-def load_filenames(data_dir, dataset_type, stack_size, sequences=None):
-    loader = {
-        'raw': load_filenames_raw,
-        'odom': load_filenames_odom
-    }
-    return loader[dataset_type](data_dir, stack_size, sequences)
 
 
 def load_image_stacks(image_path_stacks):
@@ -262,9 +139,8 @@ def build_channel_model(channel_shape, stack_size):
     return input_layer, output_layer
 
 
-def build_model(input_shape, num_outputs, stack_size):
+def build_model(input_shape, stack_size):
 
-    from copy import deepcopy
     channel_shape = list(deepcopy(input_shape))
     channel_shape[3] = 1
 
@@ -276,22 +152,6 @@ def build_model(input_shape, num_outputs, stack_size):
 
     model = Model(inputs=[r_input, g_input, b_input], outputs=output_avg)
 
-    # regu = 0.1
-    # model = Sequential()
-    # model.add(Conv3D(32, 3, strides=3, kernel_regularizer=l2(regu), padding='same', input_shape=input_shape))
-    # model.add(BatchNormalization())
-    # model.add(Dropout(0.1))
-    # model.add(Conv3D(16, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-    # model.add(BatchNormalization())
-    # model.add(Dropout(0.1))
-    # model.add(Conv3D(8, 3, strides=3, kernel_regularizer=l2(regu), padding='same', activation='relu'))
-    # model.add(BatchNormalization())
-    # model.add(Dropout(0.1))
-    # model.add(Flatten())
-    # model.add(Dense(64, kernel_regularizer=l2(regu), activation='relu'))
-    # model.add(LeakyReLU())
-    # model.add(Dropout(0.5))
-    # model.add(Dense(num_outputs, activation='linear'))
     return model
 
 
@@ -313,96 +173,89 @@ def get_rgb_scalers(image_path_stacks):
     return scalers
 
 
-def load_data(data_dir, dataset_type, stack_size, memory_type):
+def load_data(data_dir, stack_size):
 
-    images_train, stamps, odom_train, num_outputs = load_filenames(data_dir, dataset_type,
-                                                                   stack_size, TRAIN_SEQUENCES)
+    images_train, stamps, odom_train = load_filenames_odom(data_dir, stack_size, TRAIN_SEQUENCES)
     images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
 
-    # input_shape = get_input_shape(images_train)
-    # return None, odom_train, None, None, input_shape, None
-
-    images_test, stamps, odom_test, num_outputs = load_filenames(data_dir, dataset_type,
-                                                                 stack_size, TEST_SEQUENCES)
-    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size, test_phase=True)
+    images_test, stamps, odom_test = load_filenames_odom(data_dir, stack_size, TEST_SEQUENCES)
+    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size)
 
     input_shape = get_input_shape(images_train)
 
-    if memory_type == 'high':
-        images_train = load_image_stacks(images_train)
-        images_test = load_image_stacks(images_test)
+    images_train = load_image_stacks(images_train)
+    images_test = load_image_stacks(images_test)
 
-        # Augment dataset 0 (skip)
+    # Augment dataset 0 (skip)
 
-        # images_train_double = []
-        # odom_train_double = []
+    # images_train_double = []
+    # odom_train_double = []
 
-        # for idx, (image_stack, odom) in enumerate(zip(images_train, odom_train)):
-        #     if idx + stack_size - 1 < len(images_train):
+    # for idx, (image_stack, odom) in enumerate(zip(images_train, odom_train)):
+    #     if idx + stack_size - 1 < len(images_train):
 
-        #         image_stack_next = images_train[idx+stack_size-1]
-        #         odom_next = odom_train[idx+stack_size-1]
+    #         image_stack_next = images_train[idx+stack_size-1]
+    #         odom_next = odom_train[idx+stack_size-1]
 
-        #         odom_new = odom + odom_next
+    #         odom_new = odom + odom_next
 
-        #         if np.abs(odom_new) > np.max(odom_train) * 0.8:
-        #             continue
+    #         if np.abs(odom_new) > np.max(odom_train) * 0.8:
+    #             continue
 
-        #         # image_stack_new = np.concatenate([
-        #         #     np.expand_dims(image_stack[:, :, 0, :], axis=2),
-        #         #     np.expand_dims(image_stack[:, :, 2, :], axis=2),
-        #         #     np.expand_dims(image_stack[:, :, 4, :], axis=2),
-        #         #     np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
-        #         #     np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
-        #         # ], axis=2)
+    #         # image_stack_new = np.concatenate([
+    #         #     np.expand_dims(image_stack[:, :, 0, :], axis=2),
+    #         #     np.expand_dims(image_stack[:, :, 2, :], axis=2),
+    #         #     np.expand_dims(image_stack[:, :, 4, :], axis=2),
+    #         #     np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
+    #         #     np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
+    #         # ], axis=2)
 
-        #         image_stack_new = np.concatenate([
-        #             np.expand_dims(image_stack[:, :, 0, :], axis=2),
-        #             np.expand_dims(image_stack[:, :, 2, :], axis=2),
-        #             np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
-        #         ], axis=2)
+    #         image_stack_new = np.concatenate([
+    #             np.expand_dims(image_stack[:, :, 0, :], axis=2),
+    #             np.expand_dims(image_stack[:, :, 2, :], axis=2),
+    #             np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
+    #         ], axis=2)
 
-        #         images_train_double.append(image_stack_new)
-        #         odom_train_double.append(odom_new)
+    #         images_train_double.append(image_stack_new)
+    #         odom_train_double.append(odom_new)
 
-        # images_train = np.concatenate((images_train, images_train_double))
-        # odom_train = np.concatenate((odom_train, odom_train_double))
+    # images_train = np.concatenate((images_train, images_train_double))
+    # odom_train = np.concatenate((odom_train, odom_train_double))
 
-        # Augment dataset 1
+    # Augment dataset 1
 
-        # images_train_flip = []
-        # odom_train_flip = []
+    # images_train_flip = []
+    # odom_train_flip = []
 
-        # for image_stack, odom in zip(images_train, odom_train):
-        #     if abs(odom) > 0.05:
-        #         image_stack_flipped = np.flip(image_stack, axis=1)
-        #         images_train_flip.append(image_stack_flipped)
-        #         odom_train_flip.append(odom * -1.0)
+    # for image_stack, odom in zip(images_train, odom_train):
+    #     if abs(odom) > 0.05:
+    #         image_stack_flipped = np.flip(image_stack, axis=1)
+    #         images_train_flip.append(image_stack_flipped)
+    #         odom_train_flip.append(odom * -1.0)
 
-        # images_train = np.concatenate((images_train, images_train_flip))
-        # odom_train = np.concatenate((odom_train, odom_train_flip))
+    # images_train = np.concatenate((images_train, images_train_flip))
+    # odom_train = np.concatenate((odom_train, odom_train_flip))
 
-        # Augment dataset 2
+    # Augment dataset 2
 
-        images_train_flip = np.flip(images_train, axis=2)
-        odom_train_flip = [o * -1.0 for o in odom_train]
+    images_train_flip = np.flip(images_train, axis=2)
+    odom_train_flip = [o * -1.0 for o in odom_train]
 
-        num_stacks = images_train.shape[0]
-        images_train_new = np.repeat(images_train, 2, axis=0)
-        odom_train_new = np.repeat(odom_train, 2, axis=0)
+    num_stacks = images_train.shape[0]
+    images_train_new = np.repeat(images_train, 2, axis=0)
+    odom_train_new = np.repeat(odom_train, 2, axis=0)
 
-        print(images_train.shape)
-        print(images_train_flip.shape)
-        print(images_train_new.shape)
+    print(images_train.shape)
+    print(images_train_flip.shape)
+    print(images_train_new.shape)
 
-        images_train_new[num_stacks:num_stacks+num_stacks] = images_train_flip
-        odom_train_new[num_stacks:num_stacks+num_stacks] = odom_train_flip
+    images_train_new[num_stacks:num_stacks+num_stacks] = images_train_flip
+    odom_train_new[num_stacks:num_stacks+num_stacks] = odom_train_flip
 
-        images_train = images_train_new
-        odom_train = odom_train_new
+    images_train = images_train_new
+    odom_train = odom_train_new
 
-
-    return images_train, odom_train, images_test, odom_test, input_shape, num_outputs
+    return images_train, odom_train, images_test, odom_test, input_shape
 
 
 def get_model_tpl(model_file_full):
@@ -430,13 +283,12 @@ def weighted_mse(y_true, y_pred):
 def main(args):
 
     model_file_tpl = get_model_tpl(args.model_file)
-    images_train, odom_train, images_test, odom_test, input_shape, num_outputs = load_data(
-        args.data_dir, args.dataset_type, args.stack_size, args.memory)
+    images_train, odom_train, images_test, odom_test, input_shape = load_data(args.data_dir, args.stack_size)
 
     if args.resume:
         model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
     else:
-        model = build_model(input_shape, num_outputs, args.stack_size)
+        model = build_model(input_shape, args.stack_size)
         # model.compile(loss='mse', optimizer='adam')
         model.compile(loss=weighted_mse, optimizer='adam')
 
@@ -444,37 +296,13 @@ def main(args):
 
     callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
 
-    if args.memory == 'high':
-
-        images_train = [
-            np.expand_dims(images_train[:, :, :, :, 0], axis=4),
-            np.expand_dims(images_train[:, :, :, :, 1], axis=4),
-            np.expand_dims(images_train[:, :, :, :, 2], axis=4)
-        ]
-        images_test = [
-            np.expand_dims(images_test[:, :, :, :, 0], axis=4),
-            np.expand_dims(images_test[:, :, :, :, 1], axis=4),
-            np.expand_dims(images_test[:, :, :, :, 2], axis=4)
-        ]
-
-        history = model.fit(images_train, odom_train,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            verbose=1,
-            shuffle=True,
-            validation_data=(images_test, odom_test),
-            callbacks=callbacks)
-
-    else:
-
-        scalers = get_rgb_scalers(images_test)
-        history = model.fit_generator(dataset_generator(images_train, odom_train, scalers, args.batch_size, args.memory),
-            epochs=args.epochs,
-            steps_per_epoch=int(len(images_train)/args.batch_size),
-            validation_steps=int(len(images_test)/args.batch_size),
-            verbose=1,
-            validation_data=dataset_generator(images_test, odom_test, scalers, args.batch_size, args.memory),
-            callbacks=callbacks)
+    history = model.fit(images_train, odom_train,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        verbose=1,
+        shuffle=True,
+        validation_data=(images_test, odom_test),
+        callbacks=callbacks)
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
@@ -487,18 +315,13 @@ def parse_args():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', help='Dataset directory')
-    parser.add_argument('dataset_type', help='Dataset type (either raw or odom)')
     parser.add_argument('model_file', help='Model file')
     parser.add_argument('history_file', help='Output history file')
     parser.add_argument('-b', '--batch_size', type=int, default=100, help='Batch size')
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
-    parser.add_argument('-m', '--memory', default='low', help='Memory strategy, one of (low, medium, high)')
     parser.add_argument('-r', '--resume', action='store_true', help='Resume training on model')
     args = parser.parse_args()
-
-    if args.memory not in {'low', 'medium', 'high'}:
-        sys.exit('--memory option must be one of low, medium, or high')
 
     global HIGH_ANGLE
     HIGH_ANGLE = {
