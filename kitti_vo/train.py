@@ -11,27 +11,31 @@ import cv2
 import numpy as np
 import keras.backend as K
 from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average, SpatialDropout3D
+from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average
 from keras.models import Model, Sequential, load_model
 from keras.optimizers import SGD
 from keras.regularizers import l2
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from filename_loaders import load_filenames_odom, YAW
+from filename_loaders import load_filenames_odom, YAW, poses_to_offsets
 from image_loader import ImageLoader
 from recent_model_renamer import RecentModelRenamer
 
 
 
-TRAIN_SEQUENCES = ['00', '02', '08', '09']
-TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
+# TRAIN_SEQUENCES = ['00', '02', '08', '09']
+# TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
+TRAIN_SEQUENCES = ['00', '01', '02', '03', '04', '07', '08', '09']
+TEST_SEQUENCES = ['05', '06', '10']
+
 
 
 HIGH_ANGLE = 0.05
+ODOM_SCALES = np.array([0.37534439])
 
 
-def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
+def stack_data(image_paths, stamps, poses, stack_size, augment=False):
     """
     In format:
         image_paths: [[sequence 0 image paths], [sequence 1 image_paths], etc]
@@ -44,18 +48,62 @@ def stack_data(image_paths, stamps, odoms, stack_size, test_phase=False):
 
     image_paths_stacks = []
     stamps_new = []
-    odoms_new = []
+    poses_new = []
 
-    for image_paths_seq, stamps_seq, odom_seq in zip(image_paths, stamps, odoms):
+    for image_paths_seq, stamps_seq, pose_seq in zip(image_paths, stamps, poses):
 
         for i in range(len(image_paths_seq)-stack_size+1):
 
-            image_paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
-            image_paths_stacks.append(image_paths_stack)
-            stamps_new.append(stamps_seq[i])
-            odoms_new.append(odom_seq[i])
+            paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
+            stamp_stack = [stamps_seq[i+j] for j in range(stack_size)]
+            pose_stack = [pose_seq[i+j] for j in range(stack_size)]
 
-    return image_paths_stacks, stamps_new, np.array(odoms_new)
+            image_paths_stacks.append(paths_stack)
+            stamps_new.append(stamp_stack)
+            poses_new.append(pose_stack)
+            continue
+            if not augment:
+                continue
+
+            try:
+                paths_stack_next = [image_paths_seq[i+5-1+j] for j in range(5)]
+                stamp_stack_next = [stamps_seq[i+5-1+j] for j in range(5)]
+                pose_stack_next = [pose_seq[i+5-1+j] for j in range(5)]
+            except:
+                break
+
+            # paths_stack_new = [
+            #     paths_stack[0],
+            #     paths_stack[2],
+            #     paths_stack[4],
+            #     paths_stack_next[2],
+            #     paths_stack_next[4]
+            # ]
+            # pose_stack_new = [
+            #     pose_stack[0],
+            #     pose_stack[2],
+            #     pose_stack[4],
+            #     pose_stack_next[2],
+            #     pose_stack_next[4]
+            # ]
+
+            # yaw = poses_to_offsets(pose_stack_new, ['yaw'])[0]
+
+            # if abs(yaw) < 0.3:
+
+            #     image_paths_stacks.append(paths_stack_new)
+            #     stamps_new.append(stamp_stack)
+            #     poses_new.append(pose_stack_new)
+
+            if i % 20 == 0:
+                paths_stack_new_2 = [paths_stack[0] for _ in range(stack_size)]
+                pose_stack_new_2 = [pose_stack[0] for _ in range(stack_size)]
+
+                image_paths_stacks.append(paths_stack_new_2)
+                stamps_new.append(stamp_stack)
+                poses_new.append(pose_stack_new_2)
+
+    return image_paths_stacks, stamps_new, poses_new
 
 
 def get_input_shape(image_paths):
@@ -64,7 +112,7 @@ def get_input_shape(image_paths):
     return rows, cols, stack_size, channels
 
 
-def load_image_stacks(image_path_stacks):
+def load_image_stacks(image_path_stacks, scalers=None):
     """Loads image path stacks into memory"""
 
     num_stacks = len(image_path_stacks)
@@ -78,11 +126,21 @@ def load_image_stacks(image_path_stacks):
 
     # Load all images into memory, flatten them, and normalize by channel
     images_flat = np.array([cv2.imread(path).flatten() for path in paths], dtype=np.float32)
-    for channel in range(channels):
-        start, end = channel * rows * cols, (channel+1) * rows * cols
-        channel_col = images_flat[:, start:end].reshape(-1, 1)
-        channel_col = StandardScaler().fit_transform(channel_col)
-        images_flat[:, start:end] = channel_col.reshape((images_flat.shape[0], rows * cols))
+
+    if scalers is None:
+        scalers = [StandardScaler() for _ in range(channels)]
+        for channel, scaler in enumerate(scalers):
+            start, end = channel * rows * cols, (channel+1) * rows * cols
+            channel_col = images_flat[:, start:end].reshape(-1, 1)
+            scaler.fit(channel_col)
+            channel_col = scaler.transform(channel_col)
+            images_flat[:, start:end] = channel_col.reshape((images_flat.shape[0], rows * cols))
+    else:
+        for channel, scaler in enumerate(scalers):
+            start, end = channel * rows * cols, (channel+1) * rows * cols
+            channel_col = images_flat[:, start:end].reshape(-1, 1)
+            channel_col = scaler.transform(channel_col)
+            images_flat[:, start:end] = channel_col.reshape((images_flat.shape[0], rows * cols))
 
     image_cache = {path: img.reshape((rows, cols, channels)) for path, img in zip(paths, images_flat)}
 
@@ -96,8 +154,7 @@ def load_image_stacks(image_path_stacks):
             image_stack[:, :, stack_idx, 2] = image[:, :, 2]
         image_stacks[idx] = image_stack
 
-    return image_stacks
-
+    return image_stacks, scalers
 
 
 def build_channel_model(channel_shape, stack_size):
@@ -106,10 +163,8 @@ def build_channel_model(channel_shape, stack_size):
         input_layer = Input(shape=channel_shape)
         hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = SpatialDropout3D(0.1)(hidden_layer)
         hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = SpatialDropout3D(0.1)(hidden_layer)
         hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Conv3D(4, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
@@ -145,109 +200,56 @@ def build_channel_model(channel_shape, stack_size):
 def build_model(input_shape, stack_size):
 
     channel_shape = list(copy.deepcopy(input_shape))
+    channel_shape[3] = 1
 
-    in_, out_ = build_channel_model(channel_shape, stack_size)
-    model = Model(inputs=in_, outputs=out_)
+    r_input, r_output = build_channel_model(channel_shape, stack_size)
+    g_input, g_output = build_channel_model(channel_shape, stack_size)
+    b_input, b_output = build_channel_model(channel_shape, stack_size)
+
+    output_avg = Average()([r_output, g_output, b_output])
+
+    model = Model(inputs=[r_input, g_input, b_input], outputs=output_avg)
 
     return model
 
 
-def get_rgb_scalers(image_path_stacks):
-
-    num_stacks = len(image_path_stacks)
-    rows, cols, stack_size, channels = get_input_shape(image_path_stacks)
-
-    paths = set([path for path_stack in image_path_stacks for path in path_stack])
-    scalers = [StandardScaler() for _ in range(channels)]
-
-    # Load all images into memory, flatten them, and normalize by channel
-    images = np.array([cv2.imread(path).flatten() for path in paths], dtype=np.float32)
-    for channel, scaler in enumerate(scalers):
-        start, end = channel * rows * cols, (channel+1) * rows * cols
-        channel_col = images_flat[:, start:end].reshape(-1, 1)
-        scaler.fit(channel_col)
-
-    return scalers
-
-
 def load_data(data_dir, stack_size):
 
-    images_train, stamps, odom_train = load_filenames_odom(data_dir, stack_size, TRAIN_SEQUENCES)
-    images_train, stamps, odom_train = stack_data(images_train, stamps, odom_train, stack_size)
+    images_train, stamps_train, poses_train = load_filenames_odom(data_dir, stack_size, TRAIN_SEQUENCES)
+    images_train, stamps_train_stacks, poses_train_stacks = stack_data(images_train, stamps_train, poses_train, stack_size, True)
 
-    images_test, stamps, odom_test = load_filenames_odom(data_dir, stack_size, TEST_SEQUENCES)
-    images_test, stamps, odom_test = stack_data(images_test, stamps, odom_test, stack_size)
+    images_test, stamps_test, poses_test = load_filenames_odom(data_dir, stack_size, TEST_SEQUENCES)
+    images_test, stamps_test_stacks, poses_test_stacks = stack_data(images_test, stamps_test, poses_test, stack_size)
 
     input_shape = get_input_shape(images_train)
 
-    images_train = load_image_stacks(images_train)
-    images_test = load_image_stacks(images_test)
+    images_train, _ = load_image_stacks(images_train)
+    images_test, _ = load_image_stacks(images_test)
 
-    # Augment dataset 0 (skip)
+    odom_train = np.array([poses_to_offsets(p, ['yaw']) for p in poses_train_stacks])
+    odom_test = np.array([poses_to_offsets(p, ['yaw']) for p in poses_test_stacks])
 
-    # images_train_double = []
-    # odom_train_double = []
-
-    # for idx, (image_stack, odom) in enumerate(zip(images_train, odom_train)):
-    #     if idx + stack_size - 1 < len(images_train):
-
-    #         image_stack_next = images_train[idx+stack_size-1]
-    #         odom_next = odom_train[idx+stack_size-1]
-
-    #         odom_new = odom + odom_next
-
-    #         if np.abs(odom_new) > np.max(odom_train) * 0.8:
-    #             continue
-
-    #         # image_stack_new = np.concatenate([
-    #         #     np.expand_dims(image_stack[:, :, 0, :], axis=2),
-    #         #     np.expand_dims(image_stack[:, :, 2, :], axis=2),
-    #         #     np.expand_dims(image_stack[:, :, 4, :], axis=2),
-    #         #     np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
-    #         #     np.expand_dims(image_stack_next[:, :, 4, :], axis=2)
-    #         # ], axis=2)
-
-    #         image_stack_new = np.concatenate([
-    #             np.expand_dims(image_stack[:, :, 0, :], axis=2),
-    #             np.expand_dims(image_stack[:, :, 2, :], axis=2),
-    #             np.expand_dims(image_stack_next[:, :, 2, :], axis=2),
-    #         ], axis=2)
-
-    #         images_train_double.append(image_stack_new)
-    #         odom_train_double.append(odom_new)
-
-    # images_train = np.concatenate((images_train, images_train_double))
-    # odom_train = np.concatenate((odom_train, odom_train_double))
-
-    # Augment dataset 1
-
-    # images_train_flip = []
-    # odom_train_flip = []
-
-    # for image_stack, odom in zip(images_train, odom_train):
-    #     if abs(odom) > 0.05:
-    #         image_stack_flipped = np.flip(image_stack, axis=1)
-    #         images_train_flip.append(image_stack_flipped)
-    #         odom_train_flip.append(odom * -1.0)
-
-    # images_train = np.concatenate((images_train, images_train_flip))
-    # odom_train = np.concatenate((odom_train, odom_train_flip))
-
-    # Augment dataset 2
-
-    images_train_flip = np.flip(images_train, axis=2)
-    odom_train_flip = [o * -1.0 for o in odom_train]
-
-    num_stacks = images_train.shape[0]
+    # Augment dataset 1 (flip)
     images_train_new = np.repeat(images_train, 2, axis=0)
     odom_train_new = np.repeat(odom_train, 2, axis=0)
 
-    print(images_train.shape)
-    print(images_train_flip.shape)
-    print(images_train_new.shape)
+    images_train_new[images_train.shape[0]:] = np.flip(images_train, axis=2)
+    odom_train_new[odom_train.shape[0]:] = -odom_train
 
-    images_train_new[num_stacks:num_stacks+num_stacks] = images_train_flip
-    odom_train_new[num_stacks:num_stacks+num_stacks] = odom_train_flip
+    assert images_train.shape[0] == odom_train.shape[0], '{} {}'.format(
+        images_train.shape, odom_train.shape)
+
+    images_train = images_train_new
+    odom_train = odom_train_new
+    # num_stacks = images_train[0].shape[0]
+
+    # images_train_new = [np.repeat(s, 2, axis=0) for s in images_train]
+    # odom_train_new = np.repeat(odom_train, 2, axis=0)
+
+    # for i in range(3):
+    #     images_train_new[i][num_stacks:] = np.flip(images_train[i], axis=2)
+    
+    # odom_train_new[num_stacks:] = -odom_train
 
     images_train = images_train_new
     odom_train = odom_train_new
@@ -276,6 +278,13 @@ def weighted_mse(y_true, y_pred):
     return K.mean(K.square(y_true - y_pred) * mask_gt + K.square(y_true - y_pred) * mask_lt)
 
 
+def convert(image_stacks):
+    image_stacks = [
+        np.expand_dims(image_stacks[:, :, :, :, 0], axis=4),
+        np.expand_dims(image_stacks[:, :, :, :, 1], axis=4),
+        np.expand_dims(image_stacks[:, :, :, :, 2], axis=4)
+    ]
+    return image_stacks
 
 def main(args):
 
@@ -293,12 +302,12 @@ def main(args):
 
     callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
 
-    history = model.fit(images_train, odom_train,
+    history = model.fit(convert(images_train), odom_train,
         epochs=args.epochs,
         batch_size=args.batch_size,
         verbose=1,
         shuffle=True,
-        validation_data=(images_test, odom_test),
+        validation_data=(convert(images_test), odom_test),
         callbacks=callbacks)
 
     print('Saving model to {}'.format(args.model_file))

@@ -4,6 +4,7 @@ import argparse
 import copy
 import os
 
+import cv2
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -72,6 +73,22 @@ def write_poses(output_file, poses):
             fd.write(pose_line)
 
 
+def expand_image(image):
+    rows, cols, _ = image.shape
+    image_large = cv2.resize(image, (cols+2, rows+2))
+    image_large = np.expand_dims(image_large, axis=2)
+    image_cropped = image_large[1:-1, 1:-1]
+    return image_cropped
+
+def expand_stacks(image_stacks):
+    stack_size = image_stacks[0].shape[3]
+    assert stack_size == 5
+    for image_stack_channel in image_stacks:
+        for image_stack in image_stack_channel:
+            for i in range(stack_size):
+                image_stack[:, :, i, :] = expand_image(image_stack[:, :, i, :])
+    return image_stacks
+
 def predict(model_yaw, image_stacks, mode):
 
     if mode == 'normal':
@@ -90,26 +107,46 @@ def predict(model_yaw, image_stacks, mode):
         predictions_yaw_flipped = -model_yaw.predict(image_stacks_flipped)
         predictions_yaw = np.mean((predictions_yaw, predictions_yaw_flipped), axis=0)
 
+    elif mode == 'normal_multiple':
+
+        predictions_yaw_all = []
+
+        for i in range(3):
+            predictions_yaw = model_yaw.predict(image_stacks)
+            predictions_yaw_all.append(predictions_yaw)
+            image_stacks = expand_stacks(image_stacks)
+
+        predictions_yaw = np.mean(predictions_yaw_all, axis=0)
+
     return predictions_yaw
+
+
+def load_scalers(input_dir, stack_size):
+    image_paths, stamps, poses_gt = filename_loaders.load_filenames_odom(input_dir, stack_size, sequences=train.TRAIN_SEQUENCES)
+    image_paths, stamps, poses_gt_stacks = train.stack_data(image_paths, stamps, poses_gt, stack_size)
+    _, scalers = train.load_image_stacks(image_paths)
+    return scalers
 
 
 def main(args):
 
     model_yaw = load_model(args.model_file, custom_objects={'weighted_mse': train.weighted_mse})
+    # scalers = load_scalers(args.input_dir, args.stack_size)
 
-    filename_loaders.YAW = False
-    image_paths, stamps, odoms_gt_y = filename_loaders.load_filenames_odom(args.input_dir, args.stack_size, sequences=train.TEST_SEQUENCES)
+    image_paths, stamps, poses_gt = filename_loaders.load_filenames_odom(args.input_dir, args.stack_size, sequences=train.TEST_SEQUENCES)
 
-    for sequence, (image_paths_, stamps_, odom_gt_y_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, odoms_gt_y)):
+    for sequence, (image_paths_, stamps_, poses_gt_) in zip(train.TEST_SEQUENCES, zip(image_paths, stamps, poses_gt)):
 
-        image_paths, stamps, odom_gt_y = train.stack_data([image_paths_], [stamps_], [odom_gt_y_], args.stack_size, test_phase=True)
+        image_paths, stamps, poses_gt_stacks = train.stack_data([image_paths_], [stamps_], [poses_gt_], args.stack_size)
+        odom_gt_y = np.array([filename_loaders.poses_to_offsets(p, ['y']) for p in poses_gt_stacks]).reshape(-1, 1)
 
-        image_stacks = train.load_image_stacks(image_paths)
+        # image_stacks, _ = train.load_image_stacks(image_paths, scalers)
+        image_stacks, _ = train.load_image_stacks(image_paths)
+        image_stacks = train.convert(image_stacks)
 
-        predictions_yaw = predict(model_yaw, image_stacks, args.mode)
-        # predictions_yaw *= train.ODOM_SCALES
+        predictions_yaw = predict(model_yaw, image_stacks, args.mode).reshape(-1, 1)
 
-        predictions = np.hstack((np.array(odom_gt_y).reshape(-1, 1), np.array(predictions_yaw).reshape(-1, 1)))
+        predictions = np.hstack((odom_gt_y, predictions_yaw))
 
         poses = calc_poses(predictions, stamps_, args.stack_size)
 
@@ -129,8 +166,8 @@ def parse_args():
     parser.add_argument('mode', help='Predict mode')
     args = parser.parse_args()
 
-    if args.mode not in {'normal', 'flipped', 'merged'}:
-        raise Exception('args.mode must be one of [normal, flipped, merged]')
+    if args.mode not in {'normal', 'flipped', 'merged', 'normal_multiple'}:
+        raise Exception('args.mode must be one of [normal, flipped, merged, normal_multiple]')
 
     return args
 

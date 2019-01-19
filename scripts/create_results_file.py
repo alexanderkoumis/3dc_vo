@@ -103,11 +103,7 @@ def main(args, cache=None):
         image_paths, stamps, odom = train.stack_data([image_paths_], [stamps_], [odom_], args.stack_size, test_phase=True)
 
         image_stacks = load_image_stacks(sequence, image_paths, cache)
-        image_stacks = [
-            np.expand_dims(image_stacks[:, :, :, :, 0], axis=4),
-            np.expand_dims(image_stacks[:, :, :, :, 1], axis=4),
-            np.expand_dims(image_stacks[:, :, :, :, 2], axis=4)
-        ]
+        image_stacks = train.convert(image_stacks)
 
         predictions_y = model_y.predict(image_stacks)
         predictions_y *= train.ODOM_SCALES
