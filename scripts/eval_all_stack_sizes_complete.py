@@ -19,12 +19,11 @@ stack_sizes = [5]
 epochs = 600
 epochs_save = 60
 
-kitti_dir = '/home/koumis/Development/kitti_vo'
-eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
-data_dir = '/media/cache/koumis/kitti/odom/160_90'
-# data_dir = '/media/cache/koumis/kitti/odom/238_72'
-
-sys.path.append(os.path.join(kitti_dir, 'kitti_vo'))
+kitti_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+# eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
+# data_dir = '/media/cache/koumis/kitti/odom/160_90'
+eval_bin = sys.argv[1]
+data_dir = sys.argv[2]
 
 odo_gt_dir = os.path.join(data_dir, 'poses/')
 odo_res_dir = os.path.join(data_dir, 'poses_results/')

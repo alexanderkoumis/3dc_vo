@@ -24,10 +24,10 @@ from recent_model_renamer import RecentModelRenamer
 
 
 
-# TRAIN_SEQUENCES = ['00', '02', '08', '09']
-# TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
-TRAIN_SEQUENCES = ['00', '01', '02', '03', '04', '07', '08', '09']
-TEST_SEQUENCES = ['05', '06', '10']
+TRAIN_SEQUENCES = ['00', '02', '08', '09']
+TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
+# TRAIN_SEQUENCES = ['00', '01', '02', '03', '04', '07', '08', '09']
+# TEST_SEQUENCES = ['05', '06', '10']
 
 
 
