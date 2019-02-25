@@ -61,39 +61,9 @@ def stack_data(image_paths, stamps, poses, stack_size, augment=False):
             image_paths_stacks.append(paths_stack)
             stamps_new.append(stamp_stack)
             poses_new.append(pose_stack)
-            continue
+
             if not augment:
                 continue
-
-            try:
-                paths_stack_next = [image_paths_seq[i+5-1+j] for j in range(5)]
-                stamp_stack_next = [stamps_seq[i+5-1+j] for j in range(5)]
-                pose_stack_next = [pose_seq[i+5-1+j] for j in range(5)]
-            except:
-                break
-
-            # paths_stack_new = [
-            #     paths_stack[0],
-            #     paths_stack[2],
-            #     paths_stack[4],
-            #     paths_stack_next[2],
-            #     paths_stack_next[4]
-            # ]
-            # pose_stack_new = [
-            #     pose_stack[0],
-            #     pose_stack[2],
-            #     pose_stack[4],
-            #     pose_stack_next[2],
-            #     pose_stack_next[4]
-            # ]
-
-            # yaw = poses_to_offsets(pose_stack_new, ['yaw'])[0]
-
-            # if abs(yaw) < 0.3:
-
-            #     image_paths_stacks.append(paths_stack_new)
-            #     stamps_new.append(stamp_stack)
-            #     poses_new.append(pose_stack_new)
 
             if i % 20 == 0:
                 paths_stack_new_2 = [paths_stack[0] for _ in range(stack_size)]

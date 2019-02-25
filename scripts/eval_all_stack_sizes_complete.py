@@ -20,9 +20,9 @@ epochs = 600
 epochs_save = 60
 
 kitti_dir = '/home/koumis/Development/kitti_vo'
-eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet_5610'
-# data_dir = '/media/cache/koumis/kitti/odom/160_90'
-data_dir = '/media/cache/koumis/kitti/odom/238_72'
+eval_bin = '/home/koumis/Development/External/kitty_eval/evaluate_odometry_quiet'
+data_dir = '/media/cache/koumis/kitti/odom/160_90'
+# data_dir = '/media/cache/koumis/kitti/odom/238_72'
 
 sys.path.append(os.path.join(kitti_dir, 'kitti_vo'))
 
@@ -87,8 +87,8 @@ def create_results_file(model_file, stack_size, mode):
 def train_model(model_file, history_file, stack_size):
     # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     # print(f'Training stack size {stack_size} with command: {train_command}')
-    train_command = '{} {} {} {} -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
-    # train_command = '{} {} {} {} -e {} -b 200 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    # train_command = '{} {} {} {} -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    train_command = '{} {} {} {} -e {} -b 200 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
     print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,
@@ -149,13 +149,12 @@ results = []
 for stack_size in stack_sizes:
 
     model_stack_dir = os.path.join(model_dir, str(stack_size))
-    # model_stack_dir = '/home/koumis/Development/kitti_vo/models/odom/yaw/5'
     model_file = os.path.join(model_stack_dir, 'model_odom.h5')
     history_file = os.path.join(results_dir, str(stack_size), 'history.json')
 
     # shutil.rmtree(model_stack_dir)
     # os.mkdir(model_stack_dir)
-    #train_model(model_file, history_file, stack_size)
+    train_model(model_file, history_file, stack_size)
 
     models_losses = get_models_losses(model_stack_dir, stack_size)
 
