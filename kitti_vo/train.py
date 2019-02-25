@@ -4,6 +4,7 @@ import argparse
 import copy
 import json
 import os
+import pickle
 import random
 import sys
 
@@ -33,6 +34,52 @@ TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 
 HIGH_ANGLE = 0.05
 ODOM_SCALES = np.array([0.37534439])
+
+image_loader = ImageLoader()
+
+
+def dataset_generator(image_paths_all, odoms_all, rgb_scalers, batch_size):
+
+    global image_loader
+    input_target_list = list(zip(image_paths_all, odoms_all))
+    # random.shuffle(input_target_list)
+
+    while True:
+
+        stacked_images_batch = [[], [], []]
+        odom_batch = []
+
+        for paths, odoms in input_target_list:
+
+            try:
+                images = [image_loader.load_image(path).astype(np.float32) for path in paths]
+            except:
+                continue
+
+            rows, cols = images[0].shape[:2]
+            stack_size = len(paths)
+            stack_shape = (rows, cols, stack_size, 1)
+            image_stacks = [np.zeros(stack_shape, dtype=np.float32) for _ in range(3)]
+
+            for idx, image in enumerate(images):
+
+                for channel, scaler in enumerate(rgb_scalers):
+
+                    image_channel = image[:, :, channel]
+                    image_channel_flat = image_channel.reshape(-1, 1)
+                    image_channel_flat = scaler.transform(image_channel_flat)
+                    image_channel = image_channel_flat.reshape(image[:, :, channel].shape)
+                    image_stacks[channel][:, :, idx] = image_channel[:, :, np.newaxis]
+
+            for channel in range(3):
+                stacked_images_batch[channel].append(image_stacks[channel])
+
+            odom_batch.append(odoms)
+
+            if len(stacked_images_batch[0]) == batch_size:
+                yield [np.array(batch) for batch in stacked_images_batch], np.array(odom_batch)
+                stacked_images_batch = [[], [], []]
+                odom_batch = []
 
 
 def stack_data(image_paths, stamps, poses, stack_size, augment=False):
@@ -183,7 +230,7 @@ def build_model(input_shape, stack_size):
     return model
 
 
-def load_data(data_dir, stack_size):
+def load_data(data_dir, stack_size, load_data=True):
 
     images_train, stamps_train, poses_train = load_filenames_odom(data_dir, stack_size, TRAIN_SEQUENCES)
     images_train, stamps_train_stacks, poses_train_stacks = stack_data(images_train, stamps_train, poses_train, stack_size, True)
@@ -193,36 +240,37 @@ def load_data(data_dir, stack_size):
 
     input_shape = get_input_shape(images_train)
 
-    images_train, _ = load_image_stacks(images_train)
-    images_test, _ = load_image_stacks(images_test)
-
     odom_train = np.array([poses_to_offsets(p, ['yaw']) for p in poses_train_stacks])
     odom_test = np.array([poses_to_offsets(p, ['yaw']) for p in poses_test_stacks])
 
-    # Augment dataset 1 (flip)
-    images_train_new = np.repeat(images_train, 2, axis=0)
-    odom_train_new = np.repeat(odom_train, 2, axis=0)
+    if load_data:
+        images_train, _ = load_image_stacks(images_train)
+        images_test, _ = load_image_stacks(images_test)
 
-    images_train_new[images_train.shape[0]:] = np.flip(images_train, axis=2)
-    odom_train_new[odom_train.shape[0]:] = -odom_train
+        # Augment dataset 1 (flip)
+        images_train_new = np.repeat(images_train, 2, axis=0)
+        odom_train_new = np.repeat(odom_train, 2, axis=0)
 
-    assert images_train.shape[0] == odom_train.shape[0], '{} {}'.format(
-        images_train.shape, odom_train.shape)
+        images_train_new[images_train.shape[0]:] = np.flip(images_train, axis=2)
+        odom_train_new[odom_train.shape[0]:] = -odom_train
 
-    images_train = images_train_new
-    odom_train = odom_train_new
-    # num_stacks = images_train[0].shape[0]
+        assert images_train.shape[0] == odom_train.shape[0], '{} {}'.format(
+            images_train.shape, odom_train.shape)
 
-    # images_train_new = [np.repeat(s, 2, axis=0) for s in images_train]
-    # odom_train_new = np.repeat(odom_train, 2, axis=0)
+        images_train = images_train_new
+        odom_train = odom_train_new
+        # num_stacks = images_train[0].shape[0]
 
-    # for i in range(3):
-    #     images_train_new[i][num_stacks:] = np.flip(images_train[i], axis=2)
-    
-    # odom_train_new[num_stacks:] = -odom_train
+        # images_train_new = [np.repeat(s, 2, axis=0) for s in images_train]
+        # odom_train_new = np.repeat(odom_train, 2, axis=0)
 
-    images_train = images_train_new
-    odom_train = odom_train_new
+        # for i in range(3):
+        #     images_train_new[i][num_stacks:] = np.flip(images_train[i], axis=2)
+        
+        # odom_train_new[num_stacks:] = -odom_train
+
+        images_train = images_train_new
+        odom_train = odom_train_new
 
     return images_train, odom_train, images_test, odom_test, input_shape
 
@@ -259,7 +307,8 @@ def convert(image_stacks):
 def main(args):
 
     model_file_tpl = get_model_tpl(args.model_file)
-    images_train, odom_train, images_test, odom_test, input_shape = load_data(args.data_dir, args.stack_size)
+    images_train, odom_train, images_test, odom_test, input_shape = load_data(
+        args.data_dir, args.stack_size, args.preload)
 
     if args.resume:
         model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
@@ -272,13 +321,26 @@ def main(args):
 
     callbacks = [ModelCheckpoint(model_file_tpl), RecentModelRenamer(args.model_file)]
 
-    history = model.fit(convert(images_train), odom_train,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        verbose=1,
-        shuffle=True,
-        validation_data=(convert(images_test), odom_test),
-        callbacks=callbacks)
+    if args.preload:
+
+        history = model.fit(convert(images_train), odom_train,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            verbose=1,
+            shuffle=True,
+            validation_data=(convert(images_test), odom_test),
+            callbacks=callbacks)
+
+    else:
+
+        scalers = pickle.load(open(args.scalers, 'rb'))
+        history = model.fit_generator(dataset_generator(images_train, odom_train, scalers, args.batch_size),
+            epochs=args.epochs,
+            steps_per_epoch=int(len(images_train)/args.batch_size),
+            validation_steps=int(len(images_test)/args.batch_size),
+            verbose=1,
+            validation_data=dataset_generator(images_test, odom_test, scalers, args.batch_size),
+            callbacks=callbacks)
 
     print('Saving model to {}'.format(args.model_file))
     model.save(args.model_file)
@@ -297,7 +359,12 @@ def parse_args():
     parser.add_argument('-e', '--epochs', type=int, default=2, help='Number of epochs')
     parser.add_argument('-s', '--stack_size', type=int, default=5, help='Size of image stack')
     parser.add_argument('-r', '--resume', action='store_true', help='Resume training on model')
+    parser.add_argument('-p', '--preload', action='store_true', default=False, help='Load all data at once')
+    parser.add_argument('-n', '--scalers', help='RGB scalers file')
     args = parser.parse_args()
+
+    if not args.preload and not args.scalers:
+        raise Exception('If --preload is not set --scalers must be')
 
     global HIGH_ANGLE
     HIGH_ANGLE = {

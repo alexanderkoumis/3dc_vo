@@ -16,7 +16,7 @@ import train
 #stack_sizes = [2, 3, 5, 7, 10]
 stack_sizes = [5]
 # stack_sizes = [int(sys.argv[1])]
-epochs = 600
+epochs = 1
 epochs_save = 60
 
 kitti_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -35,6 +35,7 @@ train_file = os.path.join(kitti_dir, 'kitti_vo', 'train.py')
 plot_file = os.path.join(kitti_dir, 'kitti_vo', 'plot.py')
 
 create_results_script = os.path.join(kitti_dir, 'scripts', 'create_results_file_fixed_y.py')
+scalers_file = os.path.join(kitti_dir, 'scripts', 'scalers.pickle')
 
 subdata_dir = 'cool'
 subdata_results_dir = os.path.join(odo_res_dir, subdata_dir, 'data')
@@ -49,7 +50,7 @@ os.makedirs(subdata_results_dir)
 
 def get_model_file_epoch(model_stack_dir, stack_size, epoch):
 
-    files = os.listdir(model_stack_dir)
+    files = os.listdir(model_stack_dir) 
     result = []
 
     for fname in files:
@@ -87,7 +88,8 @@ def train_model(model_file, history_file, stack_size):
     # train_command = f'{train_file} {data_dir} odom {model_file} {history_file} -m high -e {epochs} -b 100 -s {stack_size}'
     # print(f'Training stack size {stack_size} with command: {train_command}')
     # train_command = '{} {} {} {} -r -e {} -b 400 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
-    train_command = '{} {} {} {} -e {} -b 200 -s {}'.format(train_file, data_dir, model_file, history_file, epochs, stack_size)
+    train_command = '{} {} {} {} -e {} -b 200 -s {} -n {}'.format(
+        train_file, data_dir, model_file, history_file, epochs, stack_size, scalers_file)
     print('Training stack size {} with command: {}'.format(stack_size, train_command))
     subprocess.check_call(train_command,
                           shell=True,
