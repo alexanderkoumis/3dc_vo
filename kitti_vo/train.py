@@ -31,6 +31,8 @@ TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 # TEST_SEQUENCES = ['05', '06', '10']
 
 
+EVAL_SEQUENCES = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21']
+
 
 HIGH_ANGLE = 0.05
 ODOM_SCALES = np.array([0.37534439])
