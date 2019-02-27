@@ -74,10 +74,6 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
         if '.DS_Store' in sequence_num:
             continue
 
-        # Only sequences 0-10 are provided for ground truth
-        if int(sequence_num) > 10:
-            continue
-
         image_dir = join(sequences_dir, sequence_num, 'image_2')
         stamps_path = join(sequences_dir, sequence_num, 'times.txt')
         pose_path = join(pose_dir, '{}.txt'.format(sequence_num))
@@ -87,7 +83,11 @@ def load_filenames_odom(base_dir, stack_size, sequences=None):
 
         image_paths = [join(image_dir, fname) for fname in image_filenames]
         stamps = get_stamps(stamps_path)
-        poses = get_poses(pose_path)
+
+        if int(sequence_num) > 10:
+            poses = []
+        else:
+            poses = get_poses(pose_path)
 
         image_paths_all.append(image_paths)
         stamps_all.append(stamps)
