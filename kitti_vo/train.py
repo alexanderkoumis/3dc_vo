@@ -31,8 +31,8 @@ TEST_SEQUENCES = ['03', '04', '05', '06', '07', '10']
 # TEST_SEQUENCES = ['05', '06', '10']
 
 
-# EVAL_SEQUENCES = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21']
-EVAL_SEQUENCES = ['11', '12', '13', '14', '15']
+EVAL_SEQUENCES = ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21']
+# EVAL_SEQUENCES = ['11', '12', '13', '14', '15']
 
 
 HIGH_ANGLE = 0.05
@@ -106,7 +106,11 @@ def stack_data(image_paths, stamps, poses, stack_size, augment=False):
 
             paths_stack = [image_paths_seq[i+j] for j in range(stack_size)]
             stamp_stack = [stamps_seq[i+j] for j in range(stack_size)]
-            pose_stack = [pose_seq[i+j] for j in range(stack_size)]
+
+            try:
+                pose_stack = [pose_seq[i+j] for j in range(stack_size)]
+            except:
+                pose_stack = []
 
             image_paths_stacks.append(paths_stack)
             stamps_new.append(stamp_stack)
