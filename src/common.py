@@ -3,6 +3,7 @@ import functools
 import os
 
 import cv2
+import keras.backend as K
 import numpy as np
 
 
@@ -17,6 +18,13 @@ y = 'y'
 
 
 # Functions
+
+def weighted_mse(y_true, y_pred):
+    high_angle = 0.1
+    mask_gt = K.cast(K.abs(y_true) > high_angle, np.float32) * np.array([2.0])
+    mask_lt = K.cast(K.abs(y_true) < high_angle, np.float32) * np.array([1.0])
+    return K.mean(K.square(y_true - y_pred) * mask_gt + K.square(y_true - y_pred) * mask_lt)
+
 
 def get_input_shape(image_paths):
     rows, cols, channels = cv2.imread(image_paths[0][0]).shape
@@ -51,7 +59,7 @@ def load_normalized_image(image_path, reproduce=False):
     return image
 
 
-def load_image_stacks(image_path_stacks):
+def load_image_stacks(image_path_stacks, reproduce=False):
     """Loads image path stacks into memory"""
 
     num_stacks = len(image_path_stacks)
@@ -64,7 +72,7 @@ def load_image_stacks(image_path_stacks):
         stack_shape = (rows, cols, stack_size, channels)
         image_stack = np.zeros(stack_shape, dtype=np.float32)
         for stack_idx, path in enumerate(path_stack):
-            image = load_normalized_image(path)
+            image = load_normalized_image(path, reproduce)
             image_stack[:, :, stack_idx, 0] = image[:, :, 0]
             image_stack[:, :, stack_idx, 1] = image[:, :, 1]
             image_stack[:, :, stack_idx, 2] = image[:, :, 2]

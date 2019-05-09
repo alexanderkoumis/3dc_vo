@@ -71,29 +71,38 @@ def write_poses(output_dir, sequence, poses):
             fd.write(pose_line)
 
 
-def weighted_mse(y_true, y_pred):
-    return y_true - y_pred
-
-
 def main(args):
 
+    if args.reproduce:
+        scale_yaw = 0.37534439
+        model_file_yaw = os.path.join(kitti_dir, 'data', 'models', 'model_pretrained_yaw.h5')
+        model_file_y = os.path.join(kitti_dir, 'data', 'models', 'model_pretrained_y.h5')
+    else:
+        scale_yaw = 1.0
+        model_file_yaw = args.model_yaw
+        model_file_y = args.model_y
+
+    sequences = {
+        'val': common.sequences_val,
+        'test': common.sequences_test
+    }[args.seq]
+
     model_y = load_model(args.model_y)
-    model_yaw = load_model(args.model_yaw, custom_objects={'weighted_mse': weighted_mse})
+    model_yaw = load_model(args.model_yaw, custom_objects={'weighted_mse': common.weighted_mse})
 
-    image_paths, stamps, odoms = common.load_filenames_odom(
-        args.input_dir, common.sequences_test)
+    image_paths, stamps, odoms = common.load_filenames_odom(args.input_dir, sequences)
 
-    for sequence, (image_paths_, stamps_, odoms_) in zip(common.sequences_test, zip(image_paths, stamps, odoms)):
+    for sequence, (image_paths_, stamps_, odoms_) in zip(sequences, zip(image_paths, stamps, odoms)):
 
         print('Sequence: {}'.format(sequence))
 
         image_paths, stamps, odom = common.stack_data([image_paths_], [stamps_], [odoms_], common.stack_size)
 
-        image_stacks = common.load_image_stacks(image_paths)
+        image_stacks = common.load_image_stacks(image_paths, args.reproduce)
         image_stacks = common.split_image_channels(image_stacks)
 
-        predictions_y = model_y.predict(image_stacks).reshape(-1, 1) * args.scale_y
-        predictions_yaw = model_yaw.predict(image_stacks).reshape(-1, 1) * args.scale_yaw
+        predictions_y = model_y.predict(image_stacks).reshape(-1, 1)
+        predictions_yaw = model_yaw.predict(image_stacks).reshape(-1, 1) * scale_yaw
 
         predictions = np.hstack((predictions_y, predictions_yaw))
 
@@ -108,17 +117,20 @@ def parse_args():
 
     images_dir = os.path.join(kitti_dir, 'data', 'images')
     output_dir = os.path.join(kitti_dir, 'output')
-    model_file_yaw = os.path.join(kitti_dir, 'data', 'models', 'model_pretrained_yaw.h5')
-    model_file_y = os.path.join(kitti_dir, 'data', 'models', 'model_pretrained_y.h5')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', default=images_dir, help='Base directory')
     parser.add_argument('--output_dir', default=output_dir, help='Results directory')
-    parser.add_argument('--model_yaw', default=model_file_yaw, help='Yaw model .h5 file')
-    parser.add_argument('--model_y', default=model_file_y, help='Y model .h5 file')
-    parser.add_argument('--scale_yaw', default=0.37534439, help='Yaw prediction scale factor')
-    parser.add_argument('--scale_y', default=1.0, help='Y prediction scale factor')
-    return parser.parse_args()
+    parser.add_argument('--reproduce', action='store_true', help='Reproduce results from paper')
+    parser.add_argument('--model_yaw', help='Yaw model .h5 file')
+    parser.add_argument('--model_y', help='Y model .h5 file')
+    parser.add_argument('--seq', default='val', choices=['val', 'test'], help='Validation or test seqs.')
+    args = parser.parse_args()
+
+    if args.reproduce and (args.model_yaw or args.model_y):
+        sys.exit('--reproduce and --model_(yaw|y) are mutually exclusive')
+
+    return args
 
 
 if __name__ == '__main__':

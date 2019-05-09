@@ -5,20 +5,14 @@ import copy
 import json
 import math
 import os
-import pickle
-import random
-import sys
 
 import cv2
 import numpy as np
-import keras.backend as K
-from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras.layers import Dense, Conv2D, Conv3D, Flatten, Dropout, MaxPooling2D, BatchNormalization, LeakyReLU, MaxPooling3D, Input, Average
-from keras.models import Model, Sequential, load_model
-from keras.optimizers import SGD
+from keras.callbacks import ModelCheckpoint
+from keras.layers import Dense, Conv3D, Flatten, Dropout, BatchNormalization, LeakyReLU, Input, Average
+from keras.models import Model, load_model
+from keras.optimizers import Adam
 from keras.regularizers import l2
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 from recent_model_renamer import RecentModelRenamer
 import common
@@ -73,23 +67,20 @@ def build_channel_model(channel_shape, yaw_or_y, stack_size):
     else:
         regu = 0.1
         input_layer = Input(shape=channel_shape)
-        hidden_layer = Conv3D(32, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
-        hidden_layer = BatchNormalization()(hidden_layer)
-        hidden_layer = Dropout(0.1)(hidden_layer)
-        hidden_layer = Conv3D(16, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(input_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Dropout(0.1)(hidden_layer)
         hidden_layer = Conv3D(8, [3, 3, stack_size], strides=[3, 3, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Dropout(0.1)(hidden_layer)
-        hidden_layer = Conv3D(4, 1, strides=[1, 1, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
+        hidden_layer = Conv3D(16, [1, 1, 1], strides=[1, 1, 1], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Conv3D(1, [1, 1, stack_size], strides=[1, 1, stack_size], kernel_regularizer=l2(regu), padding='same', activation='relu')(hidden_layer)
         hidden_layer = BatchNormalization()(hidden_layer)
         hidden_layer = Flatten()(hidden_layer)
-        hidden_layer = Dense(64, kernel_regularizer=l2(regu), activation='relu')(hidden_layer)
+        hidden_layer = Dense(8, kernel_regularizer=l2(regu), activation='relu')(hidden_layer)
         hidden_layer = LeakyReLU()(hidden_layer)
-        hidden_layer = Dropout(0.5)(hidden_layer)
+        hidden_layer = Dropout(0.25)(hidden_layer)
         output_layer = Dense(1, activation='linear')(hidden_layer)
     return input_layer, output_layer
 
@@ -120,8 +111,8 @@ def load_data(data_dir, stack_size, yaw_or_y):
 
     input_shape = common.get_input_shape(images_train)
 
-    odom_train = np.array([poses_to_offsets(p, ['yaw']) for p in poses_train_stacks])
-    odom_val = np.array([poses_to_offsets(p, ['yaw']) for p in poses_val_stacks])
+    odom_train = np.array([poses_to_offsets(p, [yaw_or_y]) for p in poses_train_stacks])
+    odom_val = np.array([poses_to_offsets(p, [yaw_or_y]) for p in poses_val_stacks])
 
     images_train = common.load_image_stacks(images_train)
     images_val = common.load_image_stacks(images_val)
@@ -154,13 +145,6 @@ def save_history_file(history_file, history_dict):
         fd.write(history_str)
 
 
-def weighted_mse(y_true, y_pred):
-    high_angle = 0.1
-    mask_gt = K.cast(K.abs(y_true) > high_angle, np.float32) * np.array([2.0])
-    mask_lt = K.cast(K.abs(y_true) < high_angle, np.float32) * np.array([1.0])
-    return K.mean(K.square(y_true - y_pred) * mask_gt + K.square(y_true - y_pred) * mask_lt)
-
-
 def main(args):
 
     model_file_tpl = get_model_tpl(args.model_file)
@@ -168,10 +152,11 @@ def main(args):
         args.data_dir, args.stack_size, args.yaw_or_y)
 
     if args.resume:
-        model = load_model(args.model_file, custom_objects={'weighted_mse': weighted_mse})
+        model = load_model(args.model_file, custom_objects={'weighted_mse': common.weighted_mse})
     else:
         model = build_model(input_shape, args.yaw_or_y, args.stack_size)
-        model.compile(loss=weighted_mse, optimizer='adam')
+        model.compile(loss=common.weighted_mse if args.yaw_or_y == common.yaw else 'mse',
+                      optimizer=Adam(lr=0.0001))
 
     model.summary()
 
